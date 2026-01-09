@@ -265,6 +265,15 @@ int main()
 	}
 	xil_printf("[PHASE 1] Frame interrupt initialized (DMA end-of-frame ISR)\r\n");
 
+	/* Initialize packet timer (100us interrupts for 10 kHz packet transmission rate)
+	 * Works with frame interrupt: timer paces transmission, frame signals data availability
+	 */
+	if (packet_timer_init(&gic_inst) != XST_SUCCESS) {
+		xil_printf("[ERROR] Packet timer init failed\r\n");
+		return -1;
+	}
+	xil_printf("[PHASE 1] Packet timer initialized (100us packet pacing)\r\n");
+
 	/* -----------------------------------------------------------------
 	 * [Phase 2] lwIP Stack Initialization
 	 * -----------------------------------------------------------------
@@ -481,13 +490,16 @@ int main()
 		/* [Packet Poll] Check MAC for received packets, inject into lwIP. */
 		xemacif_input(echo_netif);
 
-		/* [Frame Processing] ISR-driven: process complete frame when DMA signals ready
-		 * DMA writes 512 samples × 128 channels (interleaved) to DDR, then fires interrupt.
-		 * We read frame from memory, de-interleave, and transmit packet-by-packet.
+		/* [Dual Interrupt Processing]
+		 * Frame interrupt: Marks when new frame is available in DDR
+		 * Packet timer: Paces transmission at 10 kHz (100us intervals)
+		 * 
+		 * Flow: Wait for frame ready, then send one packet per timer tick
 		 */
-		if (frame_ready()) {
-			stream_scheduler_run();  // Process frame: read DDR, de-interleave, packetize
-			frame_clear();           // Clear flag to receive next frame
+		if (packet_timer_ready() && frame_ready()) {
+			stream_scheduler_run();  // Send next mic packet
+			packet_timer_clear();
+			// frame_clear() called by scheduler when all 102 mics sent
 		}
 
 		/* [Application Hook] Periodic task for continuous data transmission.

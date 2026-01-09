@@ -203,9 +203,13 @@ static err_t data_connected(void *arg, struct tcp_pcb *tpcb, err_t err){
 	g_last_frame_ms = 0;
 	data_connected_flag = 1;
 
-	// Enable DMA frame-ready interrupt handling
+	// Enable frame interrupt (DMA signals)
 	frame_interrupt_enable();
 	xil_printf("[DATA] Frame interrupt enabled (waiting for DMA frames from PL)\r\n");
+
+	// Start packet timer (100us pacing)
+	packet_timer_start();
+	xil_printf("[DATA] Packet timer started (10 kHz transmission rate)\r\n");
 
 	return ERR_OK;
 }
@@ -214,9 +218,10 @@ static void data_err(void *arg, err_t err)
 {
     xil_printf("[DATA] ERROR: connection failed, err=%d (pcb destroyed by lwIP)\r\n", err);
     
-    // Disable frame interrupt when disconnected
+    // Stop packet timer and disable frame interrupt when disconnected
+    packet_timer_stop();
     frame_interrupt_disable();
-    xil_printf("[DATA] Frame interrupt disabled\r\n");
+    xil_printf("[DATA] Interrupts disabled\r\n");
     
     data_pcb = NULL; // pcb is gone
     data_connected_flag = 0;
@@ -270,16 +275,28 @@ static void generate_samples(uint16_t mic_id, int16_t *out)
  * Memory layout: [S0:ch0..127][S1:ch0..127]...[S511:ch0..127]
  * Extracts: [S0:mic][S1:mic]...[S511:mic]
  * 
- * TODO: Update DMA_FRAME_BASE_ADDR to match Vivado address editor
- * TODO: Manage data cache: Xil_DCacheInvalidateRange() or disable cache
+ * IMPORTANT: Uses professor's ping-pong buffer management:
+ * - dma_get_ready_buffer_address() returns current buffer (A or B)
+ * - Software reads from returned address
+ * - After frame complete: dma_release_buffer() to free buffer
+ * 
+ * Cache Management: Professor will handle or advise on cache policy
  * ======================================================================== */
-#define DMA_FRAME_BASE_ADDR_REAL  0x10000000  // UPDATE THIS!
-#define USE_DDR_READS 0  // Set to 1 when DMA base address is configured
+#define USE_DDR_READS 1  // Set to 1 for real DMA reads, 0 for simulation
+
+// Current frame buffer address (updated each frame from DMA manager)
+static volatile int16_t *g_current_frame_base = NULL;
 
 #if USE_DDR_READS
 static void read_mic_samples_from_ddr(uint16_t mic_id, int16_t *out_samples)
 {
-    volatile int16_t *frame_base = (volatile int16_t *)DMA_FRAME_BASE_ADDR_REAL;
+    // Use current buffer address provided by DMA manager
+    volatile int16_t *frame_base = g_current_frame_base;
+    
+    if (frame_base == NULL) {
+        xil_printf("[ERROR] No buffer address set!\r\n");
+        return;
+    }
     
     for (int sample_idx = 0; sample_idx < SAMPLES_PER_MIC; sample_idx++) {
         int interleaved_index = (sample_idx * NUM_CHANNELS) + mic_id;
@@ -369,6 +386,14 @@ static int send_frame_step(void){
 	//Init last frame time at first run
 	if (g_last_frame_ms == 0) g_last_frame_ms = g_ms;
 
+	// On new frame: get buffer address from DMA manager
+	if (g_mic_idx == 0 && frame_ready()) {
+#if USE_DDR_READS
+		g_current_frame_base = (volatile int16_t *)dma_get_ready_buffer_address();
+		xil_printf("[FRAME] New buffer ready at 0x%08X\r\n", (uint32_t)g_current_frame_base);
+#endif
+	}
+
 	//If we're mid frame, keep trying to complete it
 	if (g_mic_idx > 0){
 		send_frame_step();
@@ -380,7 +405,15 @@ static int send_frame_step(void){
 		// Removed: && (g_ms - g_last_frame_ms) >= g_frame_period_ms
 		g_last_frame_ms = g_ms;
 		//Begin new frame by sending first mics
-		send_frame_step();
+		if (send_frame_step()) {
+			// Frame complete - notify DMA we're done with this buffer
+#if USE_DDR_READS
+			dma_release_buffer();
+			xil_printf("[FRAME] Buffer released to DMA\r\n");
+#endif
+			// Clear flag to accept next frame from DMA
+			frame_clear();
+		}
 	}
 }
 

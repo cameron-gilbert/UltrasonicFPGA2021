@@ -118,3 +118,101 @@ void frame_get_stats(uint32_t *received, uint32_t *missed)
     if (received) *received = frames_received;
     if (missed) *missed = frames_missed;
 }
+
+/* ============================================================================
+ * 100µs Packet Timer Implementation
+ * ============================================================================
+ * Separate timer that fires every 100 microseconds to pace packet transmission.
+ * Works in conjunction with frame interrupt:
+ * - Frame interrupt: Marks frame data as available in DDR
+ * - Packet timer: Controls when to send next mic packet (rate limiting)
+ * 
+ * This prevents overwhelming TCP send buffer and provides smooth 10 kHz packet rate.
+ * ============================================================================ */
+
+static XScuTimer packet_timer_inst;
+static volatile int packet_timer_flag = 0;
+
+static void packet_timer_isr(void *callback_ref)
+{
+    XScuTimer *timer = (XScuTimer *)callback_ref;
+    XScuTimer_ClearInterruptStatus(timer);
+    packet_timer_flag = 1;
+}
+
+int packet_timer_init(XScuGic *gic_inst)
+{
+    int status;
+    XScuTimer_Config *timer_config;
+    
+    xil_printf("[PKT_TIMER] Initializing 100us packet timer...\r\n");
+    
+    timer_config = XScuTimer_LookupConfig(PACKET_TIMER_DEVICE_ID);
+    if (timer_config == NULL) {
+        xil_printf("[PKT_TIMER] ERROR: Config lookup failed\r\n");
+        return XST_FAILURE;
+    }
+    
+    status = XScuTimer_CfgInitialize(&packet_timer_inst, timer_config, timer_config->BaseAddr);
+    if (status != XST_SUCCESS) {
+        xil_printf("[PKT_TIMER] ERROR: Init failed\r\n");
+        return status;
+    }
+    
+    status = XScuTimer_SelfTest(&packet_timer_inst);
+    if (status != XST_SUCCESS) {
+        xil_printf("[PKT_TIMER] ERROR: Self-test failed\r\n");
+        return status;
+    }
+    
+    // Calculate load value for 100us
+    u32 timer_clock_hz = XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 2;
+    u32 load_value = (timer_clock_hz * PACKET_INTERVAL_US) / 1000000;
+    
+    XScuTimer_LoadTimer(&packet_timer_inst, load_value);
+    XScuTimer_EnableAutoReload(&packet_timer_inst);
+    
+    // Connect ISR to GIC (use different priority than frame interrupt)
+    status = XScuGic_Connect(gic_inst, PACKET_TIMER_INTR_ID,
+                            (Xil_ExceptionHandler)packet_timer_isr,
+                            (void *)&packet_timer_inst);
+    if (status != XST_SUCCESS) {
+        xil_printf("[PKT_TIMER] ERROR: ISR connect failed\r\n");
+        return status;
+    }
+    
+    // Set lower priority than frame interrupt (0xB0 vs 0xA0)
+    XScuGic_SetPriorityTriggerType(gic_inst, PACKET_TIMER_INTR_ID, 0xB0, 0x3);
+    
+    XScuGic_Enable(gic_inst, PACKET_TIMER_INTR_ID);
+    
+    xil_printf("[PKT_TIMER] Initialized (100us intervals, 10 kHz packet rate)\r\n");
+    
+    return XST_SUCCESS;
+}
+
+void packet_timer_start(void)
+{
+    packet_timer_flag = 0;
+    XScuTimer_EnableInterrupt(&packet_timer_inst);
+    XScuTimer_Start(&packet_timer_inst);
+    xil_printf("[PKT_TIMER] Started (10 kHz packet pacing)\r\n");
+}
+
+void packet_timer_stop(void)
+{
+    XScuTimer_Stop(&packet_timer_inst);
+    XScuTimer_DisableInterrupt(&packet_timer_inst);
+    packet_timer_flag = 0;
+    xil_printf("[PKT_TIMER] Stopped\r\n");
+}
+
+int packet_timer_ready(void)
+{
+    return packet_timer_flag;
+}
+
+void packet_timer_clear(void)
+{
+    packet_timer_flag = 0;
+}

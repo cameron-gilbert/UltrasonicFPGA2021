@@ -2,6 +2,12 @@
 
 #include "xscugic.h"
 #include "xparameters.h"
+#include "xscutimer.h"
+
+/* Dual Interrupt Architecture:
+ * 1. Frame Interrupt: Signals when DMA has written complete frame to DDR
+ * 2. Packet Timer: Fires every 100µs to pace individual packet transmission
+ */
 
 /* Frame Interrupt Configuration
  * This connects to the HLS DMA end-of-frame interrupt from PL (FPGA fabric).
@@ -41,3 +47,45 @@ int frame_ready(void);
 
 // Clear ready flag after processing frame
 void frame_clear(void);
+
+/* ============================================================================
+ * DMA Buffer Management Interface (Professor-Implemented)
+ * ============================================================================
+ * These functions will be provided by the professor's DMA control module.
+ * They manage ping-pong buffering and provide buffer addresses to software.
+ * 
+ * Integration: Declare these as extern in your code, professor will link them.
+ * ============================================================================ */
+
+// Get address of current ready buffer (Buffer A or Buffer B)
+// Returns: DDR address of buffer ready for transmission
+// Called after frame interrupt fires
+extern uint32_t* dma_get_ready_buffer_address(void);
+
+// Get buffer size (number of frames per buffer)
+// Returns: Size in bytes of each ping-pong buffer
+extern uint32_t dma_get_buffer_size(void);
+
+// Notify DMA that software finished reading buffer
+// Allows DMA to reuse this buffer for next frame
+// Call after completing transmission
+extern void dma_release_buffer(void);
+
+/* 100µs Packet Timer Configuration
+ * Paces transmission: one mic packet every 100 microseconds (10 kHz rate)
+ * Works with frame interrupt: only sends when frame data is available
+ */
+#define PACKET_TIMER_DEVICE_ID  XPAR_XSCUTIMER_0_DEVICE_ID
+#define PACKET_TIMER_INTR_ID    XPS_SCU_TMR_INT_ID
+#define PACKET_INTERVAL_US      100
+
+// Initialize 100µs packet timer (separate from frame interrupt)
+int packet_timer_init(XScuGic *gic_inst);
+
+// Start/stop packet timer
+void packet_timer_start(void);
+void packet_timer_stop(void);
+
+// Check if it's time to send next packet
+int packet_timer_ready(void);
+void packet_timer_clear(void);
