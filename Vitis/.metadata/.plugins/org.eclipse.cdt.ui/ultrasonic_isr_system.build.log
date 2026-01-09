@@ -1,0 +1,10 @@
+17:23:49 **** Build of configuration Debug for project ultrasonic_isr_system ****
+make all 
+Generating bif file for the system project
+generate_system_bif.bat 58046 C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm standalone_domain C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif
+sdcard_gen --xpfm C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm --sys_config design_1_wrapper --bif C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif --bitstream C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit --elf C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/Debug/ultrasonic_isr.elf,ps7_cortexa9_0
+creating BOOT.BIN using C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit
+Running C:/Xilinx/Vitis/2021.1/bin/bootgen  -image C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/sd_card_temp/boot.bif -w -o i BOOT.BIN
+
+17:23:55 Build Finished (took 6s.650ms)
+

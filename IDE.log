@@ -1,0 +1,8 @@
+21:35:12 INFO  : Platform repository initialization has completed.
+21:35:12 INFO  : Launching XSCT server: xsct.bat -n  -interactive C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\temp_xsdb_launch_script.tcl
+21:35:12 INFO  : Registering command handlers for Vitis TCF services
+21:35:27 INFO  : XSCT server has started successfully.
+21:35:27 INFO  : Successfully done setting XSCT server connection channel  
+21:35:28 INFO  : plnx-install-location is set to ''
+21:35:28 INFO  : Successfully done setting workspace for the tool. 
+21:35:28 INFO  : Successfully done query RDI_DATADIR 

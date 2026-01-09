@@ -1,0 +1,18 @@
+Nothing to build in platform 'design_1_wrapper'
+
+08:57:56 **** Incremental Build of configuration Debug for project ultrasonic_isr ****
+make all 
+make --no-print-directory pre-build
+a9-linaro-pre-build-step
+' '
+make --no-print-directory main-build
+'Building file: ../src/echo.c'
+'Invoking: ARM v7 gcc compiler'
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/echo.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bspinclude/include -MMD -MP -MF"src/echo.d" -MT"src/echo.o" -o "src/echo.o" "../src/echo.c"
+In file included from ../src/echo.c:8:
+../src/packet_timer.h:3:10: fatal error: xttcps.h: No such file or directory
+    3 | #include "xttcps.h"
+      |          ^~~~~~~~~~
+compilation terminated.
+make[1]: *** [src/subdir.mk:59: src/echo.o] Error 1
+make: *** [makefile:34: all] Error 2
