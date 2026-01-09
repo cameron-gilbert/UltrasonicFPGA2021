@@ -79,17 +79,6 @@ void frame_interrupt_enable(void)
     
     xil_printf("[FRAME_INTR] Interrupt enabled (waiting for DMA frames)\r\n");
 }
-}
-
-void frame_interrupt_enable(void)
-{
-    // Enable interrupt in GIC - will be called in frame_interrupt_init already,
-    // but this allows re-enabling after disable
-    extern XScuGic gic_inst;  // Defined in main.c
-    XScuGic_Enable(&gic_inst, FRAME_INTERRUPT_ID);
-    
-    xil_printf("[FRAME_INTR] Interrupt enabled (waiting for DMA frames)\r\n");
-}
 
 void frame_interrupt_disable(void)
 {

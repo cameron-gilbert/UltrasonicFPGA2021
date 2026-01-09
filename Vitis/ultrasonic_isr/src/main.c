@@ -128,8 +128,8 @@ extern volatile int TcpSlowTmrFlag;  /* Set every 500ms */
 static struct netif server_netif;
 struct netif *echo_netif;  /* Global pointer for app access */
 
-/* GIC instance for packet timer interrupts */
-static XScuGic gic_inst;
+/* GIC instance - non-static so packet_timer.c can access via extern */
+XScuGic gic_inst;
 
 #if LWIP_IPV6==1
 void print_ip6(char *msg, ip_addr_t *ip)
