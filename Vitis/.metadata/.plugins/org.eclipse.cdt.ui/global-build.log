@@ -1,36 +1,31 @@
 Nothing to build in platform 'design_1_wrapper'
 
-14:29:34 **** Incremental Build of configuration Debug for project ultrasonic_isr ****
+14:17:36 **** Incremental Build of configuration Debug for project ultrasonic_isr ****
 make all 
 make --no-print-directory pre-build
 a9-linaro-pre-build-step
 ' '
 make --no-print-directory main-build
-'Building file: ../src/echo.c'
-'Invoking: ARM v7 gcc compiler'
-arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/echo.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bspinclude/include -MMD -MP -MF"src/echo.d" -MT"src/echo.o" -o "src/echo.o" "../src/echo.c"
-'Finished building: ../src/echo.c'
-' '
 'Building file: ../src/main.c'
 'Invoking: ARM v7 gcc compiler'
-arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/main.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bspinclude/include -MMD -MP -MF"src/main.d" -MT"src/main.o" -o "src/main.o" "../src/main.c"
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/main.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bspinclude/include -MMD -MP -MF"src/main.d" -MT"src/main.o" -o "src/main.o" "../src/main.c"
 'Finished building: ../src/main.c'
 ' '
 'Building target: ultrasonic_isr.elf'
 'Invoking: ARM v7 gcc linker'
-arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bsplib/lib -o "ultrasonic_isr.elf"  ./src/control_channel.o ./src/echo.o ./src/i2c_access.o ./src/iic_phyreset.o ./src/main.o ./src/packet_timer.o ./src/platform.o ./src/platform_mb.o ./src/platform_ppc.o ./src/platform_zynq.o ./src/platform_zynqmp.o ./src/sfp.o ./src/si5324.o   -lm -Wl,--start-group,-lxil,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
+arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/sw/design_1_wrapper/standalone_domain/bsplib/lib -o "ultrasonic_isr.elf"  ./src/control_channel.o ./src/echo.o ./src/i2c_access.o ./src/iic_phyreset.o ./src/main.o ./src/packet_timer.o ./src/platform.o ./src/platform_mb.o ./src/platform_ppc.o ./src/platform_zynq.o ./src/platform_zynqmp.o ./src/sfp.o ./src/si5324.o   -lm -Wl,--start-group,-lxil,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
 'Finished building target: ultrasonic_isr.elf'
 ' '
 'Invoking: ARM v7 Print Size'
 arm-none-eabi-size ultrasonic_isr.elf  |tee "ultrasonic_isr.elf.size"
    text	   data	    bss	    dec	    hex	filename
- 121627	   3036	3201136	3325799	 32bf67	ultrasonic_isr.elf
+ 121827	   3036	3201136	3325999	 32c02f	ultrasonic_isr.elf
 'Finished building: ultrasonic_isr.elf.size'
 ' '
-14:29:38 **** Incremental Build of configuration Debug for project ultrasonic_isr_system ****
+14:17:37 **** Incremental Build of configuration Debug for project ultrasonic_isr_system ****
 make all 
 Generating bif file for the system project
-generate_system_bif.bat 62686 C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm standalone_domain C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif
-sdcard_gen --xpfm C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm --sys_config design_1_wrapper --bif C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif --bitstream C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit --elf C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/Debug/ultrasonic_isr.elf,ps7_cortexa9_0
-creating BOOT.BIN using C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit
-Running C:/Xilinx/Vitis/2021.1/bin/bootgen  -image C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/sd_card_temp/boot.bif -w -o i BOOT.BIN
+generate_system_bif.bat 65253 C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm standalone_domain C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif
+sdcard_gen --xpfm C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/design_1_wrapper/export/design_1_wrapper/design_1_wrapper.xpfm --sys_config design_1_wrapper --bif C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/system.bif --bitstream C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit --elf C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/Debug/ultrasonic_isr.elf,ps7_cortexa9_0
+creating BOOT.BIN using C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr/_ide/bitstream/design_1_wrapper.bit
+Running C:/Xilinx/Vitis/2021.1/bin/bootgen  -image C:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/Vitis/ultrasonic_isr_system/Debug/sd_card_temp/boot.bif -w -o i BOOT.BIN
