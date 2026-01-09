@@ -204,8 +204,12 @@ static err_t data_connected(void *arg, struct tcp_pcb *tpcb, err_t err){
 	data_connected_flag = 1;
 
 	// Enable frame interrupt (DMA signals)
+#if USE_DDR_READS
 	frame_interrupt_enable();
 	xil_printf("[DATA] Frame interrupt enabled (waiting for DMA frames from PL)\r\n");
+#else
+	xil_printf("[DATA] Frame interrupt SKIPPED (simulation mode)\r\n");
+#endif
 
 	// Start packet timer (100us pacing)
 	packet_timer_start();
@@ -220,7 +224,9 @@ static void data_err(void *arg, err_t err)
     
     // Stop packet timer and disable frame interrupt when disconnected
     packet_timer_stop();
+#if USE_DDR_READS
     frame_interrupt_disable();
+#endif
     xil_printf("[DATA] Interrupts disabled\r\n");
     
     data_pcb = NULL; // pcb is gone
@@ -282,10 +288,14 @@ static void generate_samples(uint16_t mic_id, int16_t *out)
  * 
  * Cache Management: Professor will handle or advise on cache policy
  * ======================================================================== */
-#define USE_DDR_READS 1  // Set to 1 for real DMA reads, 0 for simulation
+
+// Set to 1 for real DMA reads, 0 for simulation with test patterns
+#define USE_DDR_READS 0
 
 // Current frame buffer address (updated each frame from DMA manager)
+#if USE_DDR_READS
 static volatile int16_t *g_current_frame_base = NULL;
+#endif
 
 #if USE_DDR_READS
 static void read_mic_samples_from_ddr(uint16_t mic_id, int16_t *out_samples)
@@ -305,61 +315,55 @@ static void read_mic_samples_from_ddr(uint16_t mic_id, int16_t *out_samples)
 }
 #endif
 
-//try to send as many mic packets as sndbuf allows for the current frame
-//returns 1 when the frame is complete, 0 otherwise
+// Send ONE packet per call (100us timer-paced transmission)
+// Returns 1 when the frame is complete, 0 otherwise
 
 static int send_frame_step(void){
 	if (!data_pcb) return 0;
+	if (g_mic_idx >= MIC_COUNT) return 1;  // Already complete
 
 	g_scheduler_calls++;
-	u32 packets_this_call = 0;
 
-	//keep pushing packets while we have space
-	while (g_mic_idx < MIC_COUNT){
-		u16_t avail = tcp_sndbuf(data_pcb);
-		if (avail < PACKET_BYTES){
-			g_snd_buf_stalls++;
-			//buffer full - DON'T flush, let lwIP handle it
-			//Removing tcp_output() here allows packets to batch up
-			if (packets_this_call > g_max_burst_this_period) g_max_burst_this_period = packets_this_call;
-			break;
-		}
-
-		//build current packet
-#if USE_DDR_READS
-		read_mic_samples_from_ddr(g_mic_idx, g_samples);  // Real: read from DDR
-#else
-		generate_samples(g_mic_idx, g_samples);           // Sim: generate test pattern
-#endif
-		build_mic_packet(g_packet_buf, g_frame_no, g_mic_idx, g_samples);
-
-		err_t e = tcp_write(data_pcb, g_packet_buf, PACKET_BYTES, TCP_WRITE_FLAG_COPY);
-		if (e != ERR_OK) {
-			xil_printf("[DATA] tcp_write err=%d mic=%u\r\n", e, g_mic_idx);
-			g_tcp_write_errors++;
-			break; // back off and retry later
-		}
-
-		g_packets_sent++;
-		g_bytes_sent += PACKET_BYTES;
-		g_mic_idx++;
-		packets_this_call++;
+	// Check if we have buffer space for ONE packet
+	u16_t avail = tcp_sndbuf(data_pcb);
+	if (avail < PACKET_BYTES){
+		g_snd_buf_stalls++;
+		g_immediate_stalls++;
+		return 0;  // Buffer full - retry next 100us tick
 	}
+
+	// Build current packet (ONE mic only)
+#if USE_DDR_READS
+	read_mic_samples_from_ddr(g_mic_idx, g_samples);  // Real: read from DDR
+#else
+	generate_samples(g_mic_idx, g_samples);           // Sim: generate test pattern
+#endif
+	build_mic_packet(g_packet_buf, g_frame_no, g_mic_idx, g_samples);
+
+	// Queue packet in lwIP
+	err_t e = tcp_write(data_pcb, g_packet_buf, PACKET_BYTES, TCP_WRITE_FLAG_COPY);
+	if (e != ERR_OK) {
+		xil_printf("[DATA] tcp_write err=%d mic=%u\r\n", e, g_mic_idx);
+		g_tcp_write_errors++;
+		g_immediate_stalls++;
+		return 0; // Retry next 100us tick
+	}
+
+	g_packets_sent++;
+	g_bytes_sent += PACKET_BYTES;
+	g_productive_calls++;
+	g_mic_idx++;
 	
-	//frame complete?
+	// Frame complete?
 	if (g_mic_idx >= MIC_COUNT) {
 		g_mic_idx = 0;
 		g_frame_no++;
 		g_tcp_output_calls++;
-		tcp_output(data_pcb); //flush frame immediately to reduce latency
-		if (packets_this_call > g_max_burst_this_period) g_max_burst_this_period = packets_this_call;
-		if (packets_this_call > 0) g_productive_calls++;
-		else g_immediate_stalls++;
-		return 1;
+		tcp_output(data_pcb);  // Flush complete frame
+		return 1;  // Signal: frame complete
 	}
-	if (packets_this_call > 0) g_productive_calls++;
-	else g_immediate_stalls++;
-	return 0; //frame incomplete
+	
+	return 0;  // Frame incomplete - more mics to send
 }
 
 /* ============================================================================
@@ -381,9 +385,16 @@ static int send_frame_step(void){
  * - Mic 0 packet: samples[0][0], samples[1][0], ..., samples[511][0]
  * - Mic 1 packet: samples[0][1], samples[1][1], ..., samples[511][1]
  * - Read stride: +256 bytes (128 channels × 2 bytes) between consecutive samples
- * ============================================================================ */\n\n// TODO: Set this to match your Vivado address editor DDR allocation for DMA\n#define DMA_FRAME_BASE_ADDR  0x10000000  // Example: 256 MB offset in DDR\n\nvoid stream_scheduler_run(void){\n\tif (!data_pcb || !data_connected_flag) return;\n\n\t// TODO: Add DDR frame read and de-interleaving logic here\n\t// For now, using simulated data until professor provides DMA base address
+ * ============================================================================ */
 
-	//Init last frame time at first run
+// TODO: Set this to match your Vivado address editor DDR allocation for DMA
+#define DMA_FRAME_BASE_ADDR  0x10000000  // Example: 256 MB offset in DDR
+
+void stream_scheduler_run(void)
+{
+	if (!data_pcb || !data_connected_flag) return;
+
+	// Init last frame time at first run
 	if (g_last_frame_ms == 0) g_last_frame_ms = g_ms;
 
 	// On new frame: get buffer address from DMA manager
@@ -400,19 +411,22 @@ static int send_frame_step(void){
 		// Don't return - keep trying on every call until frame completes
 	}
 
-	//send next frame immediately when previous completes (NO RATE LIMITING FOR TEST)
+	//send next frame immediately when previous completes
 	if (g_mic_idx == 0){
-		// Removed: && (g_ms - g_last_frame_ms) >= g_frame_period_ms
 		g_last_frame_ms = g_ms;
 		//Begin new frame by sending first mics
 		if (send_frame_step()) {
-			// Frame complete - notify DMA we're done with this buffer
+			// Frame complete
 #if USE_DDR_READS
+			// Notify DMA we're done with this buffer
 			dma_release_buffer();
 			xil_printf("[FRAME] Buffer released to DMA\r\n");
-#endif
-			// Clear flag to accept next frame from DMA
+			// Clear frame flag to accept next frame from DMA
 			frame_clear();
+#else
+			// Simulation mode: immediately mark ready for next frame
+			frame_clear();
+#endif
 		}
 	}
 }

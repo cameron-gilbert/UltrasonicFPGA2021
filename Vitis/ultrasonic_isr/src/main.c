@@ -84,6 +84,9 @@
 #include "packet_timer.h"     /* ISR-based packet timer */
 #include "xscugic.h"          /* GIC for interrupt controller */
 
+// Simulation mode: 0 = use simulated data, 1 = read from DDR
+#define USE_DDR_READS 0  // Set to 1 when DMA hardware ready
+
 #if LWIP_IPV6==1
 #include "lwip/ip.h"
 #else
@@ -128,8 +131,8 @@ extern volatile int TcpSlowTmrFlag;  /* Set every 500ms */
 static struct netif server_netif;
 struct netif *echo_netif;  /* Global pointer for app access */
 
-/* GIC instance for packet timer interrupts */
-static XScuGic gic_inst;
+/* GIC instance - non-static so packet_timer.c can access via extern */
+XScuGic gic_inst;
 
 #if LWIP_IPV6==1
 void print_ip6(char *msg, ip_addr_t *ip)
@@ -258,12 +261,16 @@ int main()
 	 * 
 	 * TODO: Verify FRAME_INTERRUPT_ID in packet_timer.h matches Vivado block design!
 	 */
+#if USE_DDR_READS
 	if (frame_interrupt_init(&gic_inst) != XST_SUCCESS) {
 		xil_printf("[ERROR] Frame interrupt init failed\r\n");
 		xil_printf("[ERROR] Check that DMA interrupt is connected in Vivado block design\r\n");
 		return -1;
 	}
 	xil_printf("[PHASE 1] Frame interrupt initialized (DMA end-of-frame ISR)\r\n");
+#else
+	xil_printf("[PHASE 1] Frame interrupt SKIPPED (simulation mode)\r\n");
+#endif
 
 	/* Initialize packet timer (100us interrupts for 10 kHz packet transmission rate)
 	 * Works with frame interrupt: timer paces transmission, frame signals data availability
@@ -495,12 +502,23 @@ int main()
 		 * Packet timer: Paces transmission at 10 kHz (100us intervals)
 		 * 
 		 * Flow: Wait for frame ready, then send one packet per timer tick
+		 * 
+		 * SIMULATION MODE: If no DMA hardware, timer alone drives transmission
 		 */
+#if USE_DDR_READS
+		// Real mode: require both interrupts
 		if (packet_timer_ready() && frame_ready()) {
 			stream_scheduler_run();  // Send next mic packet
 			packet_timer_clear();
 			// frame_clear() called by scheduler when all 102 mics sent
 		}
+#else
+		// Simulation mode: just use timer (no DMA frame interrupt)
+		if (packet_timer_ready()) {
+			stream_scheduler_run();  // Send next mic packet
+			packet_timer_clear();
+		}
+#endif
 
 		/* [Application Hook] Periodic task for continuous data transmission.
 		 * Current: empty placeholder.
