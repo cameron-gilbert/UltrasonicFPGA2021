@@ -22,3 +22,10 @@
 13:52:38 INFO  : plnx-install-location is set to ''
 13:52:38 INFO  : Successfully done setting workspace for the tool. 
 13:52:38 INFO  : Successfully done query RDI_DATADIR 
+13:56:10 INFO  : Result from executing command 'getProjects': delay_and_sum_plat
+13:56:10 INFO  : Result from executing command 'getPlatforms': delay_and_sum_plat|C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum/delay_and_sum_plat/export/delay_and_sum_plat/delay_and_sum_plat.xpfm
+13:58:05 INFO  : Checking for BSP changes to sync application flags for project 'delay_and_sum_app'...
+13:59:23 INFO  : Checking for BSP changes to sync application flags for project 'delay_and_sum_app'...
+14:00:06 INFO  : Result from executing command 'removePlatformRepo': 
+14:00:39 INFO  : Result from executing command 'getProjects': delay_and_sum_plat
+14:00:39 INFO  : Result from executing command 'getPlatforms': 
