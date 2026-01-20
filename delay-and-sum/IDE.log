@@ -14,3 +14,11 @@
 
 12:20:27 INFO  : Result from executing command 'getProjects': delay_and_sum_plat
 12:20:27 INFO  : Result from executing command 'getPlatforms': delay_and_sum_plat|C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum/delay_and_sum_plat/export/delay_and_sum_plat/delay_and_sum_plat.xpfm
+13:52:25 INFO  : Launching XSCT server: xsct.bat -n  -interactive C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum\temp_xsdb_launch_script.tcl
+13:52:26 INFO  : Platform repository initialization has completed.
+13:52:27 INFO  : Registering command handlers for Vitis TCF services
+13:52:38 INFO  : XSCT server has started successfully.
+13:52:38 INFO  : Successfully done setting XSCT server connection channel  
+13:52:38 INFO  : plnx-install-location is set to ''
+13:52:38 INFO  : Successfully done setting workspace for the tool. 
+13:52:38 INFO  : Successfully done query RDI_DATADIR 
