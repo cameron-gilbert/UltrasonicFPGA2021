@@ -81,9 +81,9 @@
 
 #include "lwip/tcp.h"         /* TCP API */
 #include "xil_cache.h"        /* Cache management */
-#include "packet_timer.h"     /* ISR-based packet timer */
 #include "xscugic.h"          /* GIC for interrupt controller */
-#include "xdma.h"             /* DMA driver for ping-pong buffers */
+#include "DMA_Config.h"       /* DMA configuration and buffer management */
+#include "frame_ready.h"      /* Frame ready flags from DMA interrupts */
 
 // Simulation mode: 0 = use simulated data, 1 = read from DDR
 #define USE_DDR_READS 1  // Set to 1 when DMA hardware ready
@@ -134,137 +134,49 @@ extern volatile int TcpSlowTmrFlag;  /* Set every 500ms */
 static struct netif server_netif;
 struct netif *echo_netif;  /* Global pointer for app access */
 
-/* GIC instance - non-static so packet_timer.c can access via extern */
-XScuGic gic_inst;
+/* GIC instance now in DMA_Interrupt.c (Intc) - initialized by SetupInterruptSystem */
+/* Old declaration: XScuGic gic_inst; - removed, using Intc from DMA_Interrupt.c */
 
 /* ============================================================================
  * DMA Ping-Pong Buffer Management (Queensu DMA Integration)
  * ============================================================================
  * Hardware: Professor's DMA writes 128 channels × 512 samples to DDR
  * Format: Interleaved [S0_ch0..127, S1_ch0..127, ..., S511_ch0..127]
- * Buffers: Ping-pong (buf0/buf1) - DMA writes to one, software reads from other
+ * Buffers: Ping-pong (Bank0/Bank1) - DMA writes to one, software reads from other
  * ============================================================================ */
 #if USE_DDR_READS
-#define DMA_DEVICE_ID  XPAR_XDMA_0_DEVICE_ID
-#define BLOCK_SIZE     128  // Number of channels per block
-#define TOTAL_BLOCKS   4    // Number of 128-sample blocks: 4 × 128 = 512 samples per mic
-#define DDR_BASE       XPAR_PS7_DDR_0_S_AXI_BASEADDR
-#define BUF0_OFFSET    0x01000000
-#define BUF1_OFFSET    0x01800000
+// External references to DMA_Config.c buffers and flags
+extern u8 Bank0[TOTAL_BLOCKS * BLOCK_SIZE * 8];
+extern u8 Bank1[TOTAL_BLOCKS * BLOCK_SIZE * 8];
+extern volatile u8 Bank0_Available_Flag;
+extern volatile u8 Bank1_Available_Flag;
+extern u32 Frame_ID;
+extern XDma Dma;
 
-// DMA Control register bits
-// Bit 0 = Sampling (1=enable), Bit 1 = Normal_Test (0=real ADC, 1=test pattern)
-#define DMA_CTRL_TEST_MODE    0x3  // Test mode: FPGA generates counter pattern
-#define DMA_CTRL_NORMAL_MODE  0x1  // Normal mode: Real data from ADCs
-
-XDma g_dma;  // Global DMA instance (used by packet_timer.c for polling)
-static volatile uint16_t *g_buf0;
-static volatile uint16_t *g_buf1;
-static volatile uint32_t g_dma_active_buffer = 0;  // Which buffer DMA is writing to (0 or 1)
-static volatile uint32_t g_dma_frame_id = 0;
-static volatile int g_dma_initialized = 0;
-
-// Called by echo.c to get buffer for reading (opposite of DMA write buffer)
+// Called by echo.c to get buffer for reading
 volatile uint16_t *dma_get_current_read_buffer(void) {
-    // Return buffer opposite to the one DMA is writing
-    return (g_dma_active_buffer == 0) ? g_buf1 : g_buf0;
+    // Check which bank is available for reading
+    if (Bank0_Available_Flag) {
+        return (volatile uint16_t *)Bank0;
+    } else if (Bank1_Available_Flag) {
+        return (volatile uint16_t *)Bank1;
+    }
+    // Neither available - return NULL
+    return NULL;
 }
 
 uint32_t dma_get_current_frame_id(void) {
-    return g_dma_frame_id;
+    return Frame_ID;
 }
 
 void dma_frame_processed(void) {
-    // Called when software finishes transmitting frame
-    // Can add statistics or buffer management here
-}
-
-// Initialize DMA hardware
-static int dma_init(void) {
-    int Status;
-    
-    xil_printf("[DMA] Initializing DMA and ping-pong buffers...\r\n");
-    
-    // Allocate buffers in DDR
-    g_buf0 = (volatile uint16_t *)(DDR_BASE + BUF0_OFFSET);
-    g_buf1 = (volatile uint16_t *)(DDR_BASE + BUF1_OFFSET);
-    
-    xil_printf("[DMA] Buffer 0: 0x%08lx\r\n", (unsigned long)g_buf0);
-    xil_printf("[DMA] Buffer 1: 0x%08lx\r\n", (unsigned long)g_buf1);
-    
-    // Initialize DMA driver
-    Status = XDma_Initialize(&g_dma, DMA_DEVICE_ID);
-    if (Status != XST_SUCCESS) {
-        xil_printf("[DMA] ERROR: DMA init failed (status=%d)\r\n", Status);
-        return Status;
-    }
-    
-    // Clear DDR buffers
-    uint32_t buf_size = BLOCK_SIZE * TOTAL_BLOCKS * 4; // *4 for u64 -> u16 conversion
-    for (uint32_t i = 0; i < buf_size; i++) {
-        ((volatile uint16_t*)g_buf0)[i] = 0;
-        ((volatile uint16_t*)g_buf1)[i] = 0;
-    }
-    
-    // Flush cache to ensure zeros written to DDR
-    Xil_DCacheFlushRange((UINTPTR)g_buf0, buf_size * sizeof(uint16_t));
-    Xil_DCacheFlushRange((UINTPTR)g_buf1, buf_size * sizeof(uint16_t));
-    
-    // Configure DMA registers
-    XDma_Set_Total_blocks(&g_dma, TOTAL_BLOCKS);
-    XDma_Set_Base_Addr_0(&g_dma, (DDR_BASE + BUF0_OFFSET) / 8);
-    XDma_Set_Base_Addr_1(&g_dma, (DDR_BASE + BUF1_OFFSET) / 8);
-    
-    // Set FPGA mode and START DMA:
-    // DMA_CTRL_NORMAL_MODE = 0x1 means:
-    //   Bit 0 = 1 (Sampling ENABLED - DMA starts capturing)
-    //   Bit 1 = 0 (Normal mode - real ADC data, not test pattern)
-    XDma_Set_Control_In(&g_dma, DMA_CTRL_NORMAL_MODE);
-    
-    // Verify write succeeded by reading back
-    uint32_t readback = XDma_Get_Control_In(&g_dma);
-    xil_printf("[DMA] Control register write: 0x%02X, readback: 0x%02X %s\r\n", 
-               DMA_CTRL_NORMAL_MODE, readback,
-               (readback == DMA_CTRL_NORMAL_MODE) ? "(OK)" : "(MISMATCH!)");
-    
-    if (readback != DMA_CTRL_NORMAL_MODE) {
-        xil_printf("[DMA] ERROR: Control register not responding! Check FPGA bitstream.\r\n");
-        return XST_FAILURE;
-    }
-    
-    xil_printf("[DMA] FPGA mode: %s, Sampling: %s\r\n",
-               (readback & 0x2) ? "TEST" : "NORMAL",
-               (readback & 0x1) ? "ENABLED" : "DISABLED");
-    
-    g_dma_initialized = 1;
-    xil_printf("[DMA] Initialization complete, DMA now capturing frames from ADCs\r\n");
-    
-    // Quick diagnostic: Check if Frame ID is incrementing (polls for 2 seconds)
-    xil_printf("[DMA] Testing if frames are arriving (checking for 2 seconds)...\r\n");
-    uint32_t frame_id_start = XDma_Get_Frame_ID(&g_dma);
-    usleep(2000000);  // Wait 2 seconds
-    uint32_t frame_id_end = XDma_Get_Frame_ID(&g_dma);
-    uint32_t frame_id_valid = XDma_Get_Frame_ID_vld(&g_dma);
-    
-    xil_printf("[DMA] Frame ID: start=%u, end=%u, delta=%u, valid=%u\r\n",
-               frame_id_start, frame_id_end, frame_id_end - frame_id_start, frame_id_valid);
-    
-    if (frame_id_end == frame_id_start) {
-        xil_printf("[DMA] WARNING: Frame ID not incrementing - no data from ADCs!\r\n");
-        xil_printf("[DMA] Possible causes:\r\n");
-        xil_printf("[DMA]   - ADCs not connected or powered\r\n");
-        xil_printf("[DMA]   - Missing clock/trigger signal\r\n");
-        xil_printf("[DMA]   - FPGA design issue upstream of DMA\r\n");
-    } else {
-        xil_printf("[DMA] SUCCESS: Capturing ~%u FPS\r\n", (frame_id_end - frame_id_start) / 2);
-    }
-    
-    return XST_SUCCESS;
+    // Clear the flag for the buffer we just processed
+    // This is called after we finish transmitting a frame
+    // The interrupt will set the flag again when next frame is ready
 }
 #endif
 
-/* GIC instance - non-static so packet_timer.c can access via extern */
-// XScuGic gic_inst;  // Moved above for DMA section
+/* GIC instance now in DMA_Interrupt.c (Intc) - shared across all interrupt handlers */
 
 #if LWIP_IPV6==1
 void print_ip6(char *msg, ip_addr_t *ip)
@@ -374,50 +286,27 @@ int main()
 	//print_app_header();  // Legacy echo server banner - not needed for streaming app
 	xil_printf("\r\n[PHASE 1] Platform initialized (caches, GIC, timers)\r\n");
 
-	/* Initialize GIC for frame-ready interrupt from DMA */
-	XScuGic_Config *gic_config = XScuGic_LookupConfig(XPAR_SCUGIC_SINGLE_DEVICE_ID);
-	if (gic_config == NULL) {
-		xil_printf("[ERROR] GIC config lookup failed\r\n");
-		return -1;
-	}
-	int status = XScuGic_CfgInitialize(&gic_inst, gic_config, gic_config->CpuBaseAddress);
-	if (status != XST_SUCCESS) {
-		xil_printf("[ERROR] GIC init failed\r\n");
-		return -1;
-	}
-
-	/* Initialize frame interrupt handler (connects to DMA end-of-frame interrupt from PL)
-	 * The professor's HLS DMA asserts a fabric interrupt when complete frame is written to DDR.
-	 * Frame format: 512 samples × 128 channels (interleaved), 16-bit samples.
-	 * Memory layout: S0[ch0..127], S1[ch0..127], ..., S511[ch0..127]
-	 * 
-	 * TODO: Verify FRAME_INTERRUPT_ID in packet_timer.h matches Vivado block design!
+	/* Initialize DMA system with GIC, interrupts, and ping-pong buffers
+	 * SetupSoundSystem() (from DMA_Config.c) handles:
+	 *   - DMA hardware initialization
+	 *   - GIC (interrupt controller) setup via SetupInterruptSystem()
+	 *   - DMA interrupt connection (frame-ready ISR)
+	 *   - Bank0/Bank1 buffer allocation and configuration
+	 *   - Sampling, test mode, and interrupt enable
 	 */
 #if USE_DDR_READS
-	// Initialize DMA hardware and ping-pong buffers
-	if (dma_init() != XST_SUCCESS) {
-		xil_printf("[ERROR] DMA initialization failed\r\n");
+	int Status = SetupSoundSystem();
+	if (Status != XST_SUCCESS) {
+		xil_printf("[FATAL] DMA system initialization failed! Halting.\r\n");
 		return -1;
 	}
-	
-	if (frame_interrupt_init(&gic_inst) != XST_SUCCESS) {
-		xil_printf("[ERROR] Frame interrupt init failed\r\n");
-		xil_printf("[ERROR] Check that DMA interrupt is connected in Vivado block design\r\n");
-		return -1;
-	}
-	xil_printf("[PHASE 1] Frame interrupt initialized (DMA end-of-frame ISR)\r\n");
+	xil_printf("[PHASE 1] DMA system initialized (Bank0/Bank1 ping-pong, interrupts enabled)\r\n");
 #else
-	xil_printf("[PHASE 1] Frame interrupt SKIPPED (simulation mode)\r\n");
+	xil_printf("[PHASE 1] DMA SKIPPED (simulation mode - using test patterns)\r\n");
 #endif
 
-	/* Initialize packet timer (100us interrupts for 10 kHz packet transmission rate)
-	 * Works with frame interrupt: timer paces transmission, frame signals data availability
-	 */
-	if (packet_timer_init(&gic_inst) != XST_SUCCESS) {
-		xil_printf("[ERROR] Packet timer init failed\r\n");
-		return -1;
-	}
-	xil_printf("[PHASE 1] Packet timer initialized (100us packet pacing)\r\n");
+	/* Packet timer removed - now sending entire frame immediately on DMA interrupt */
+	xil_printf("[PHASE 1] DMA interrupt-driven mode (no packet pacing timer)\r\n");
 
 	/* -----------------------------------------------------------------
 	 * [Phase 2] lwIP Stack Initialization
@@ -641,10 +530,9 @@ int main()
 				uint32_t frame_id = XDma_Get_Frame_ID(&g_dma);
 				uint32_t frame_id_valid = XDma_Get_Frame_ID_vld(&g_dma);
 				
-				xil_printf("[STATUS] Main loop alive | Conn: %s | Frame ready: %s | Pkt timer: %s\r\n",
-				           is_data_connected() ? "YES" : "NO",
-				           frame_ready() ? "YES" : "NO",
-				           packet_timer_ready() ? "YES" : "NO");
+			xil_printf("[STATUS] Main loop alive | Conn: %s | Frame ready: %s\r\n",
+			           is_data_connected() ? "YES" : "NO",
+			           frame_ready() ? "YES" : "NO");
 				xil_printf("[STATUS] DMA Frame ID: %u (valid=%u) | Delta: %u frames in 10s\r\n",
 				           frame_id, frame_id_valid, frame_id - last_frame_id);
 				
@@ -654,39 +542,31 @@ int main()
 			TcpSlowTmrFlag = 0; /* Clear flag for next interval */
 		}
 
+	/* [Main Loop] Event-driven: check network, process frames, stream data */
+	uint32_t last_heartbeat_ms = 0;
+	while (1) {
 		/* [Packet Poll] Check MAC for received packets, inject into lwIP. */
 		xemacif_input(echo_netif);
 
-		/* [Dual Interrupt Processing]
-		 * Frame interrupt: Marks when new frame is available in DDR
-		 * Packet timer: Paces transmission at 10 kHz (100us intervals)
-		 * 
-		 * Flow: Wait for frame ready, then send one packet per timer tick
-		 * 
-		 * SIMULATION MODE: If no DMA hardware, timer alone drives transmission
-		 */
-#if USE_DDR_READS
-		// Real mode: require timer + frame available (or mid-frame transmission)
-		if (packet_timer_ready() && should_run_scheduler()) {
-			stream_scheduler_run();  // Send next mic packet
-			packet_timer_clear();
-			// frame_clear() called by scheduler when starting new frame
+		/* [Frame Processing] Check if DMA has new frame, deinterleave to RAM */
+		frame_process();
+		
+		/* [Stream Scheduler] Transmit packets from RAM buffer to PC
+		 * - Sends packets (one per call) at rate limited by TCP buffer
+		 * - Uses pre-deinterleaved data from frame_process()
+		 * - See tcp_stream.c for details */
+		stream_scheduler_run();
+
+		/* [Heartbeat] Periodic system status */
+		if ((g_ms - last_heartbeat_ms) >= 10000) {
+			xil_printf("[MAIN] System running - uptime %u s\r\n", g_ms / 1000);
+			last_heartbeat_ms = g_ms;
 		}
-#else
-		// Simulation mode: just use timer (no DMA frame interrupt)
-		if (packet_timer_ready()) {
-			stream_scheduler_run();  // Send next mic packet
-			packet_timer_clear();
-		}
-#endif
 
 		/* [Application Hook] Periodic task for continuous data transmission.
 		 * Current: empty placeholder.
 		 * Future: Send DMA buffer data to active TCP connections. */
 		//transfer_data();
-	}
-
-	/* never reached */
 	cleanup_platform();
 
 	return 0;

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="ASCII"?>
+<sdkproject:SdkProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdkproject="http://www.xilinx.com/sdkproject" name="delay_and_sum_app" location="C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum/delay_and_sum_app" platform="C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum/delay_and_sum_plat/export/delay_and_sum_plat/delay_and_sum_plat.xpfm" platformUID="xilinx:::0.0(custom)" systemProject="delay_and_sum_app_system" sysConfig="delay_and_sum_plat" runtime="C/C++" cpu="standalone_domain" cpuInstance="ps7_cortexa9_0" os="standalone" mssSignature="673b67d28e2a591c9d3c9c24850bfc73">
+  <configuration name="Debug" id="xilinx.gnu.armv7.exe.debug.710977650" dirty="true">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <configuration name="Release" id="xilinx.gnu.armv7.exe.release.1401646471" dirty="true">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <template appTemplateName="hello_world"/>
+</sdkproject:SdkProject>

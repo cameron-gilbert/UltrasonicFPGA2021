@@ -1,0 +1,25 @@
+18:01:24 **** Incremental Build of configuration Debug for project delay-and-sum-v2-app ****
+make all 
+make --no-print-directory pre-build
+a9-linaro-pre-build-step
+' '
+make --no-print-directory main-build
+'Building file: ../src/tcp_stream.c'
+'Invoking: ARM v7 gcc compiler'
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/tcp_stream.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bspinclude/include -MMD -MP -MF"src/tcp_stream.d" -MT"src/tcp_stream.o" -o "src/tcp_stream.o" "../src/tcp_stream.c"
+'Finished building: ../src/tcp_stream.c'
+' '
+'Building target: delay-and-sum-v2-app.elf'
+'Invoking: ARM v7 gcc linker'
+arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bsplib/lib -o "delay-and-sum-v2-app.elf"  ./src/DMA_Config.o ./src/DMA_Interrupt.o ./src/control_channel.o ./src/frame_ready.o ./src/i2c_access.o ./src/iic_phyreset.o ./src/main.o ./src/platform.o ./src/platform_mb.o ./src/platform_ppc.o ./src/platform_zynq.o ./src/platform_zynqmp.o ./src/sfp.o ./src/si5324.o ./src/tcp_stream.o   -lm -Wl,--start-group,-lxil,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
+'Finished building target: delay-and-sum-v2-app.elf'
+' '
+'Invoking: ARM v7 Print Size'
+arm-none-eabi-size delay-and-sum-v2-app.elf  |tee "delay-and-sum-v2-app.elf.size"
+   text	   data	    bss	    dec	    hex	filename
+ 129179	   3116	5298288	5430583	 52dd37	delay-and-sum-v2-app.elf
+'Finished building: delay-and-sum-v2-app.elf.size'
+' '
+
+18:01:25 Build Finished (took 1s.5ms)
+
