@@ -79,7 +79,7 @@
 #include "xil_printf.h"
 #endif
 
-#include "lwip/tcp.h"         /* TCP API */
+#include "lwip/udp.h"         /* UDP API */
 #include "xil_cache.h"        /* Cache management */
 #include "xscugic.h"          /* GIC for interrupt controller */
 #include "DMA_Config.h"       /* DMA configuration and buffer management */
@@ -549,12 +549,12 @@ int main()
 	frame_process();
 	
 	/* [Stream Scheduler] Transmit packets from RAM buffer to PC
-	 * - Sends packets (one per call) at rate limited by TCP buffer
+	 * - Sends packets immediately via UDP (no flow control)
 	 * - Uses pre-deinterleaved data from frame_process()
-	 * - See tcp_stream.c for details */
+	 * - See udp_stream.c for details */
 	stream_scheduler_run();
 
-	extern uint32_t g_ms; // From tcp_stream.c
+	extern uint32_t g_ms; // From udp_stream.c
 	static uint32_t last_heartbeat_ms = 0;
 	
 	/* [Heartbeat] Periodic system status (every 10 seconds) */

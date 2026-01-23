@@ -16,7 +16,7 @@ after 3000
 targets -set -filter {jtag_cable_name =~ "Digilent JTAG-HS1 210512180081" && level==0 && jtag_device_ctx=="jsn-JTAG-HS1-210512180081-13722093-0"}
 fpga -file C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit
 targets -set -nocase -filter {name =~"APU*"}
-loadhw -hw C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper.xsa -mem-ranges [list {0x40000000 0xbfffffff}] -regs
+loadhw -hw C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper22.xsa -mem-ranges [list {0x40000000 0xbfffffff}] -regs
 configparams force-mem-access 1
 targets -set -nocase -filter {name =~"APU*"}
 source C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/psinit/ps7_init.tcl

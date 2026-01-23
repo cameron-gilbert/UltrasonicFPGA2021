@@ -39,3 +39,7 @@ bsp reload
 bsp reload
 bsp write
 platform generate -domains 
+platform clean
+platform generate
+platform clean
+platform generate

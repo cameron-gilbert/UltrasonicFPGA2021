@@ -52,7 +52,7 @@ void frame_process(void);
 // Check if deinterleaved data is ready
 int frame_data_ready(void);
 
-// Get samples for one mic (called from tcp_stream.c)
+// Get samples for one mic (called from udp_stream.c)
 const int16_t* frame_get_mic_samples(uint16_t mic_id);
 
 // Legacy interrupt control (not used - DMA system handles this)

@@ -131,7 +131,7 @@ void frame_deinterleave(volatile uint16_t *frame_base)
         return;
     }
     
-    // Store buffer address for access by tcp_stream
+    // Store buffer address for access by udp_stream
     g_last_frame_base = frame_base;
     
     // Invalidate cache before reading DMA-written data
@@ -150,7 +150,7 @@ void frame_deinterleave(volatile uint16_t *frame_base)
     g_frame_deinterleaved = 1;
 }
 
-/* Get pre-deinterleaved samples for one mic (called from tcp_stream.c) */
+/* Get pre-deinterleaved samples for one mic (called from udp_stream.c) */
 const int16_t* frame_get_mic_samples(uint16_t mic_id)
 {
     if (mic_id >= MIC_COUNT) {

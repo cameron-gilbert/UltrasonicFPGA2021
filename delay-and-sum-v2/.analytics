@@ -39,3 +39,16 @@ timestamp=[2026-01-20 18:01:31], mode=BUILD, duration=0:00:05.172, duration_ms=5
 timestamp=[2026-01-22 14:57:26], mode=PLATFORM_GENERATION, duration=0:00:07.747, duration_ms=7747, data={name=delay-and-sum-v2-platform}
 timestamp=[2026-01-22 14:58:06], mode=PLATFORM_GENERATION, duration=0:00:35.465, duration_ms=35465, data={name=delay-and-sum-v2-platform}
 timestamp=[2026-01-22 14:58:27], mode=PLATFORM_GENERATION, duration=0:00:02.735, duration_ms=2735, data={name=delay-and-sum-v2-platform}
+timestamp=[2026-01-22 18:02:30], mode=PLATFORM_GENERATION, duration=0:00:04.800, duration_ms=4800, data={name=delay-and-sum-v2-platform}
+timestamp=[2026-01-22 18:02:58], mode=PLATFORM_GENERATION, duration=0:00:24.461, duration_ms=24461, data={name=delay-and-sum-v2-platform}
+timestamp=[2026-01-22 18:03:07], mode=PLATFORM_GENERATION, duration=0:00:05.185, duration_ms=5185, data={name=delay-and-sum-v2-platform}
+timestamp=[2026-01-22 18:03:07], mode=BUILD, duration=0:00:00.164, duration_ms=164, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=true}
+timestamp=[2026-01-22 18:03:07], mode=BUILD, duration=0:00:00.115, duration_ms=115, data={name=delay-and-sum-v2-app_system, configuration=Debug, clean_build=true}
+timestamp=[2026-01-22 18:03:37], mode=PLATFORM_GENERATION, duration=0:00:25.246, duration_ms=25246, data={name=delay-and-sum-v2-platform}
+timestamp=[2026-01-22 18:03:42], mode=BUILD, duration=0:00:03.335, duration_ms=3335, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:07:26], mode=BUILD, duration=0:00:00.555, duration_ms=555, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:08:15], mode=BUILD, duration=0:00:01.697, duration_ms=1697, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:08:21], mode=BUILD, duration=0:00:06.111, duration_ms=6111, data={name=delay-and-sum-v2-app_system, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:26:39], mode=BUILD, duration=0:00:00.570, duration_ms=570, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:27:12], mode=BUILD, duration=0:00:01.012, duration_ms=1012, data={name=delay-and-sum-v2-app, configuration=Debug, clean_build=false}
+timestamp=[2026-01-22 18:27:18], mode=BUILD, duration=0:00:05.124, duration_ms=5124, data={name=delay-and-sum-v2-app_system, configuration=Debug, clean_build=false}

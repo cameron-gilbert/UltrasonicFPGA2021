@@ -1,4 +1,4 @@
-18:01:25 **** Incremental Build of configuration Debug for project delay-and-sum-v2-app_system ****
+18:27:12 **** Incremental Build of configuration Debug for project delay-and-sum-v2-app_system ****
 make all 
 Generating bif file for the system project
 generate_system_bif.bat 65264 C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/delay-and-sum-v2-platform.xpfm standalone_domain C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app_system/Debug/system.bif
@@ -6,5 +6,5 @@ sdcard_gen --xpfm C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2
 creating BOOT.BIN using C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit
 Running C:/Xilinx/Vitis/2021.1/bin/bootgen  -image C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app_system/Debug/sd_card_temp/boot.bif -w -o i BOOT.BIN
 
-18:01:31 Build Finished (took 5s.157ms)
+18:27:18 Build Finished (took 5s.120ms)
 

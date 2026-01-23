@@ -21,7 +21,8 @@
 #define USE_DDR_READS 1
 
 #include "lwip/err.h"  /* Error codes (ERR_OK, ERR_MEM, etc.) */
-#include "lwip/tcp.h"  /* TCP API: tcp_new, tcp_bind, tcp_listen, tcp_write, etc. */
+#include "lwip/udp.h"  /* UDP API: udp_new, udp_bind, udp_connect, udp_send, etc. */
+#include "lwip/pbuf.h" /* Packet buffer management */
 #include "control_channel.h"  /* Port 6000 control channel */
 #include "frame_ready.h"       /* Frame ready flags from DMA interrupts */
 #if defined (__arm__) || defined (__aarch64__)
@@ -48,12 +49,13 @@
 //OLD tracking
 static uint8_t tx_buffer[1460]; // MTU-sized
 static uint32_t seq = 0;
-static struct tcp_pcb *active_pcb = NULL;
+static struct udp_pcb *active_pcb = NULL;
 static uint32_t bytes_sent = 0;
 static uint32_t timer_ticks = 0;  /* Incremented by slow timer (every 500ms) */
 //Streaming control
-static struct tcp_pcb *data_pcb = NULL;  // Client PCB for connection to PC
+static struct udp_pcb *data_pcb = NULL;  // UDP PCB for sending to PC
 static int data_connected_flag = 0;
+static int was_connected_last_check = 0;  // Track connection state changes
 static uint32_t g_frame_no = 0;  // Software frame counter
 static uint16_t g_mic_idx = 0;
 
@@ -180,60 +182,30 @@ static void gen_sine_samples(uint16_t mic_id, int16_t * out){
 
 // static void example_build_one_packet(void) { /* unused */ }
 
-//TCP DATA CHANNEL: CLIENT CALLBACKS
-static err_t data_connected(void *arg, struct tcp_pcb *tpcb, err_t err);
-static void data_err(void *arg, err_t err);
-static err_t data_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
+//UDP DATA CHANNEL - No callbacks needed (connectionless)
 
-//Call once after lwIP init: connects to PC as TCP client
+//Call once after lwIP init: sets up UDP socket for sending to PC
 void start_data_channel(void){
 	ip_addr_t pc_addr;
 	IP4_ADDR(&pc_addr, HOST_IP0, HOST_IP1, HOST_IP2, HOST_IP3);
 	
-	xil_printf("[DATA] Connecting to PC at %d.%d.%d.%d:%d ...\r\n",
+	xil_printf("[DATA] Setting up UDP socket for PC at %d.%d.%d.%d:%d ...\r\n",
 	           HOST_IP0, HOST_IP1, HOST_IP2, HOST_IP3, HOST_PORT_DATA);
 
-	data_pcb = tcp_new();
+	data_pcb = udp_new();
 	if (!data_pcb){
-		xil_printf("[DATA] ERROR: pcb alloc failed\r\n");
+		xil_printf("[DATA] ERROR: UDP PCB alloc failed\r\n");
 		return;
 	}
 
-	// Register callbacks
-	tcp_err(data_pcb, data_err);
-	tcp_sent(data_pcb, data_sent);
-	tcp_recv(data_pcb, NULL);  // No RX needed
-
-	// Initiate connection to PC
-	err_t e = tcp_connect(data_pcb, &pc_addr, HOST_PORT_DATA, data_connected);
+	// Connect UDP socket to destination (sets default remote address/port)
+	err_t e = udp_connect(data_pcb, &pc_addr, HOST_PORT_DATA);
 	if (e != ERR_OK){
-		xil_printf("[DATA] ERROR: tcp_connect failed with err=%d\r\n", e);
-		tcp_abort(data_pcb);
+		xil_printf("[DATA] ERROR: udp_connect failed with err=%d\r\n", e);
+		udp_remove(data_pcb);
 		data_pcb = NULL;
 		return;
 	}
-
-	xil_printf("[DATA] Connection initiated...\r\n");
-}
-
-static err_t data_connected(void *arg, struct tcp_pcb *tpcb, err_t err){
-	if (err != ERR_OK) {
-		xil_printf("[DATA] Connection failed, err=%d\r\n", err);
-		return err;
-	}
-
-	ip_addr_t *addr = &(tpcb->remote_ip);
-	xil_printf("[DATA] Connected to PC at %d.%d.%d.%d:%d\r\n",
-	           ip4_addr1(addr), ip4_addr2(addr), ip4_addr3(addr), ip4_addr4(addr),
-	           tpcb->remote_port);
-
-	// data_pcb already set in start_data_channel()
-	
-	// Diagnostic: Check actual buffer sizes
-	u16_t snd_buf = tcp_sndbuf(data_pcb);
-	u16_t max_packets = snd_buf / PACKET_BYTES;
-	xil_printf("[DATA] TCP_SND_BUF: %u bytes, can fit ~%u packets (%u bytes each)\r\n",
-	           snd_buf, max_packets, PACKET_BYTES);
 
 	// Reset stats
 	g_frame_no = 0;
@@ -247,77 +219,35 @@ static err_t data_connected(void *arg, struct tcp_pcb *tpcb, err_t err){
 	g_immediate_stalls = 0;
 	g_last_frame_ms = 0;
 	data_connected_flag = 1;
+	
 	xil_printf("\r\n========================================\r\n");
-	xil_printf("[DATA] *** TCP CONNECTION ESTABLISHED ***\r\n");
+	xil_printf("[DATA] *** UDP SOCKET READY ***\r\n");
 	xil_printf("[DATA] Ready to transmit data to PC\r\n");
 	xil_printf("========================================\r\n\r\n");
 
-	// DMA interrupt is already enabled by SetupSoundSystem
-	// Bank0/Bank1 flags will be set by DmaIsr when frames arrive
 #if USE_DDR_READS
 	xil_printf("[DATA] DMA interrupt already enabled (Bank0/Bank1 flags active)\r\n");
 #else
 	xil_printf("[DATA] DMA SKIPPED (simulation mode)\r\n");
 #endif
 
-	// No packet timer - send full frame immediately on DMA interrupt
 	xil_printf("[DATA] Ready to transmit - will send frames on DMA interrupt\r\n");
 	xil_printf("[DATA] Waiting for frame ready signal (Bank flags)...\r\n");
-
-	return ERR_OK;
 }
 
-static void data_err(void *arg, err_t err)
-{
-    xil_printf("[DATA] ERROR: connection failed, err=%d (pcb destroyed by lwIP)\r\n", err);
-    
-    // No packet timer to stop - just mark disconnected
-    // DMA interrupt stays enabled (controlled by SetupSoundSystem)
-    
-    data_pcb = NULL; // pcb is gone
-    data_connected_flag = 0;
-    g_last_reconnect_attempt_ms = g_ms;  // Record disconnect time
-}
+// UDP is connectionless - no callbacks needed
 
-static err_t data_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
-{
-    // Called when data is ACKed by receiver
-    static int ack_count_local = 0;
-    g_ack_count++;
-    g_bytes_acked += len;
-    ack_count_local++;
-    
-    // Always show ACKs for debugging (remove limit)
-    xil_printf("[ACK] #%d: %u bytes acked (total: %u, buf_free: %u)\r\n", 
-               ack_count_local, len, g_bytes_acked, tcp_sndbuf(tpcb));
-    
-    return ERR_OK;
-}
-
-// Check if we need to reconnect (call from main loop)
+// Check if we need to restart UDP socket (call from main loop)
 void check_reconnection(void)
 {
-    // Check if PCB exists but connection hasn't completed (stuck in SYN_SENT)
-    if (data_pcb != NULL && !data_connected_flag) {
-        // Connection stuck - check how long it's been
-        if ((g_ms - g_last_reconnect_attempt_ms) >= 5000) {  // 5 seconds stuck
-            xil_printf("[DATA] Connection timeout (PCB state: %d), aborting...\r\n", data_pcb->state);
-            tcp_abort(data_pcb);
-            data_pcb = NULL;
-            g_last_reconnect_attempt_ms = g_ms;
-            return;
-        }
-        return;  // Wait for connection to complete or timeout
-    }
-    
-    // If already connected, nothing to do
-    if (data_connected_flag) {
+    // UDP is connectionless - if PCB exists, we're ready
+    if (data_pcb != NULL) {
         return;
     }
 
     // Check if enough time has passed since last attempt
     if ((g_ms - g_last_reconnect_attempt_ms) >= g_reconnect_delay_ms) {
-        xil_printf("[DATA] Attempting reconnection...\r\n");
+        xil_printf("[DATA] Restarting UDP socket...\r\n");
         g_last_reconnect_attempt_ms = g_ms;
         start_data_channel();
     }
@@ -332,6 +262,13 @@ void on_500ms_tick(void)   // call this where you already call update_stats()
 int is_data_connected(void)
 {
     return data_connected_flag;
+}
+
+// Check if BOTH channels are connected and ready for transmission
+static int are_both_channels_ready(void)
+{
+    extern int is_control_connected(void);
+    return (data_connected_flag && is_control_connected());
 }
 
 static int g_pattern = 1; // default to sine
@@ -391,7 +328,8 @@ static void read_mic_samples_from_ddr(uint16_t mic_id, int16_t *out_samples)
 }
 #endif
 
-// Send as many packets as buffer allows for the current frame
+// Send as many packets as possible for the current frame
+// UDP has no flow control - sends immediately
 // Returns: 1 when frame is complete, 0 otherwise
 static int send_frame_step(void){
 	if (!data_pcb) return 0;
@@ -403,27 +341,11 @@ static int send_frame_step(void){
 	static int first_tx = 1;
 	if (first_tx && g_mic_idx == 0) {
 		xil_printf("[TX] Starting first frame transmission (frame %u)\r\n", g_frame_no);
-		xil_printf("[TX] TCP buffer available: %u bytes\r\n", tcp_sndbuf(data_pcb));
 		first_tx = 0;
 	}
 
-	// Keep pushing packets while we have buffer space
+	// Keep pushing packets - UDP has no send buffer limits
 	while (g_mic_idx < MIC_COUNT){
-		u16_t avail = tcp_sndbuf(data_pcb);
-		if (avail < PACKET_BYTES){
-			g_snd_buf_stalls++;
-			// Buffer full - DON'T flush, let lwIP handle it naturally
-			// Removing tcp_output() here allows packets to batch up efficiently
-			static int stall_msg_count = 0;
-			if (stall_msg_count < 5) {
-				xil_printf("[TX_STALL] Buffer full: avail=%u, need=%u, mic=%u/%u\r\n",
-				           avail, PACKET_BYTES, g_mic_idx, MIC_COUNT);
-				stall_msg_count++;
-			}
-			if (packets_this_call > g_max_burst_this_period) g_max_burst_this_period = packets_this_call;
-			break;
-		}
-
 		// Build current packet
 #if USE_DDR_READS
 		read_mic_samples_from_ddr(g_mic_idx, g_samples);
@@ -439,19 +361,33 @@ static int send_frame_step(void){
 		// Build packet with both sw_frame_no and hw_frame_no (Frame_ID)
 		build_mic_packet(g_packet_buf, g_frame_no, Frame_ID, g_mic_idx, g_samples);
 
-		err_t e = tcp_write(data_pcb, g_packet_buf, PACKET_BYTES, TCP_WRITE_FLAG_COPY);
-		if (e != ERR_OK) {
-			xil_printf("[TX_ERROR] tcp_write err=%d mic=%u\r\n", e, g_mic_idx);
+		// Create pbuf and send via UDP
+		struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, PACKET_BYTES, PBUF_RAM);
+		if (!p) {
+			xil_printf("[TX_ERROR] pbuf_alloc failed for mic=%u\r\n", g_mic_idx);
 			g_tcp_write_errors++;
-			break; // Back off and retry later
+			break;
+		}
+		
+		// Copy packet data to pbuf
+		memcpy(p->payload, g_packet_buf, PACKET_BYTES);
+		
+		// Send UDP datagram (uses connected address/port)
+		err_t e = udp_send(data_pcb, p);
+		pbuf_free(p);  // Free pbuf immediately after send
+		
+		if (e != ERR_OK) {
+			xil_printf("[TX_ERROR] udp_send err=%d mic=%u\r\n", e, g_mic_idx);
+			g_tcp_write_errors++;
+			break;
 		}
 
-		// Debug packet queueing
+		// Debug packet sending
 		if (g_packets_sent < 10) {  // First 10 packets ever
-			xil_printf("[TX_OK] Packet #%u queued: mic=%u, frame=%u\r\n", 
+			xil_printf("[TX_OK] Packet #%u sent: mic=%u, frame=%u\r\n", 
 			           g_packets_sent, g_mic_idx, g_frame_no);
 		} else if (g_mic_idx < 3 && (g_frame_no % 100) == 0) {
-			xil_printf("[TX_OK] Packet queued: mic=%u, frame=%u\r\n", g_mic_idx, g_frame_no);
+			xil_printf("[TX_OK] Packet sent: mic=%u, frame=%u\r\n", g_mic_idx, g_frame_no);
 		}
 
 		g_packets_sent++;
@@ -464,16 +400,13 @@ static int send_frame_step(void){
 	if (g_mic_idx >= MIC_COUNT) {
 		if (g_frame_no == 0) {
 			xil_printf("[TX] *** FIRST FRAME COMPLETE *** (102 packets sent)\r\n");
-			xil_printf("[TX] Calling tcp_output to flush data...\r\n");
-			xil_printf("[TX] Total bytes queued so far: %u\r\n", g_bytes_sent);
+			xil_printf("[TX] Total bytes sent so far: %u\r\n", g_bytes_sent);
 		} else if ((g_frame_no % 100) == 0) {
 			xil_printf("[TX] Frame %u complete (102 mics sent)\r\n", g_frame_no);
 		}
 		
 		g_mic_idx = 0;
 		g_frame_no++;
-		g_tcp_output_calls++;
-		tcp_output(data_pcb); // Flush frame immediately to reduce latency
 		dma_frame_processed(); // Mark frame as processed
 		
 		if (packets_this_call > g_max_burst_this_period) g_max_burst_this_period = packets_this_call;
@@ -515,15 +448,39 @@ void stream_scheduler_run(void)
 {
 	if (!data_pcb || !data_connected_flag) return;
 
+	// Check if both channels are ready - stop transmission if not
+	int both_ready = are_both_channels_ready();
+	if (!both_ready) {
+		// Connection lost - reset transmission state
+		if (was_connected_last_check) {
+			xil_printf("\r\n[DATA] Connection lost - stopping transmission\r\n");
+			xil_printf("[DATA] Waiting for both channels to reconnect...\r\n\r\n");
+			was_connected_last_check = 0;
+			// Reset to start of frame so we don't resume mid-frame
+			if (g_mic_idx > 0) {
+				xil_printf("[DATA] Resetting mid-frame transmission (was at mic %u)\r\n", g_mic_idx);
+				g_mic_idx = 0;
+			}
+		}
+		return;
+	}
+	
+	// Both channels ready - log if this is a reconnection
+	if (!was_connected_last_check) {
+		xil_printf("\r\n[DATA] Both channels connected - resuming transmission\r\n\r\n");
+		was_connected_last_check = 1;
+	}
+
 	// Init last frame time at first run
 	if (g_last_frame_ms == 0) g_last_frame_ms = g_ms;
 
 	// If we're mid-frame, keep trying to complete it
+	// (Connection check already done above, so we know both channels are ready)
 	if (g_mic_idx > 0){
 		static int mid_frame_msg = 0;
 		if (mid_frame_msg < 3) {
-			xil_printf("[SCHED] Mid-frame continue: mic=%u/%u, buf_avail=%u\r\n",
-			           g_mic_idx, MIC_COUNT, tcp_sndbuf(data_pcb));
+			xil_printf("[SCHED] Mid-frame continue: mic=%u/%u\r\n",
+			           g_mic_idx, MIC_COUNT);
 			mid_frame_msg++;
 		}
 		send_frame_step();
@@ -533,7 +490,7 @@ void stream_scheduler_run(void)
 	// Send next frame immediately when previous completes and data is ready
 	if (g_mic_idx == 0 && frame_data_ready()){
 		g_last_frame_ms = g_ms;
-		// Begin new frame by sending as many packets as buffer allows
+		// Begin new frame by sending all packets immediately (UDP has no flow control)
 		send_frame_step();
 	}
 }
@@ -549,30 +506,14 @@ void stream_stats_run(void)
         u32 mbps_x100 = (u32)((g_bytes_sent * 8 * 100) / (elapsed_ms * 1000));  // Mbps * 100
         u32 avg_pkts_per_prod_call = g_productive_calls > 0 ? (g_packets_sent / g_productive_calls) : 0;
         u32 wasted_pct = g_scheduler_calls > 0 ? (g_immediate_stalls * 100 / g_scheduler_calls) : 0;
-        u32 avg_bytes_per_ack = g_ack_count > 0 ? (g_bytes_acked / g_ack_count) : 0;
-        u32 pkts_per_ack = avg_bytes_per_ack / PACKET_BYTES;  // How many packets per ACK
         
         xil_printf("[PERF] %u.%02u Mbps | %u pkts, %u frames\r\n", 
                    mbps_x100/100, mbps_x100%100, g_packets_sent, g_frame_no);
         xil_printf("  Calls: %u total, %u productive (%u%%), %u wasted (%u%%)\r\n",
                    g_scheduler_calls, g_productive_calls, 100-wasted_pct, g_immediate_stalls, wasted_pct);
-        xil_printf("  Burst: avg ~%u, max %u | tcp_output: %u | Stalls: %u | Errors: %u\r\n",
-                   avg_pkts_per_prod_call, g_max_burst_this_period, g_tcp_output_calls, g_snd_buf_stalls, g_tcp_write_errors);
-        xil_printf("  ACKs: %u received, avg %u bytes/ACK (~%u pkts/ACK)\r\n",
-                   g_ack_count, avg_bytes_per_ack, pkts_per_ack);
-        xil_printf("  Buffer: %u/16384 free | TCP_WND: 16384\r\n",
-                   tcp_sndbuf(data_pcb));
-        
-        // TCP flow control diagnostics
-        if (data_pcb != NULL) {
-            xil_printf("  TCP State: cwnd=%u, ssthresh=%u, snd_wnd=%u, snd_queuelen=%u\r\n",
-                       data_pcb->cwnd, data_pcb->ssthresh, data_pcb->snd_wnd, data_pcb->snd_queuelen);
-            xil_printf("  TCP Timing: rto=%u, rtt=%d, lastack=%u, unsent=%s, unacked=%s\r\n",
-                       data_pcb->rto, data_pcb->rttest ? data_pcb->rttest : -1, 
-                       data_pcb->lastack, 
-                       data_pcb->unsent ? "yes" : "no",
-                       data_pcb->unacked ? "yes" : "no");
-        }
+        xil_printf("  Burst: avg ~%u, max %u | Errors: %u\r\n",
+                   avg_pkts_per_prod_call, g_max_burst_this_period, g_tcp_write_errors);
+        xil_printf("  UDP: No flow control, fire-and-forget transmission\r\n");
 
         g_packets_sent = 0;
         g_bytes_sent = 0;
@@ -588,20 +529,9 @@ void stream_stats_run(void)
     }
 }
 
-/* Hook for application-specific continuous transmission (unused in pure echo).
- * In DMA streaming: check buffer_ready flag, send buffer via tcp_write. */
+/* Hook for application-specific continuous transmission (unused in UDP streaming). */
 int transfer_data() {
-    if (active_pcb && tcp_sndbuf(active_pcb) >= sizeof(tx_buffer)) {
-        // Fill with test pattern
-        for (int i = 0; i < sizeof(tx_buffer); i += 4) {
-            *(uint32_t*)(&tx_buffer[i]) = seq++;
-        }
-        err_t err = tcp_write(active_pcb, tx_buffer, sizeof(tx_buffer), TCP_WRITE_FLAG_COPY);
-		if (err == ERR_OK) {
-			tcp_output(active_pcb);
-			bytes_sent += sizeof(tx_buffer);  // Only count if successful
-		}
-    }
+    // UDP streaming handled by stream_scheduler_run()
     return 0;
 }
 

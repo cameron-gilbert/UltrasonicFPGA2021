@@ -779,3 +779,111 @@ con
 14:58:13 INFO  : No changes in MSS file content so sources will not be generated.
 14:58:26 INFO  : Result from executing command 'getProjects': delay-and-sum-v2-platform
 14:58:26 INFO  : Result from executing command 'getPlatforms': delay-and-sum-v2-platform|C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/delay-and-sum-v2-platform.xpfm
+18:02:27 INFO  : Result from executing command 'removePlatformRepo': 
+18:02:58 INFO  : Result from executing command 'getProjects': delay-and-sum-v2-platform
+18:02:58 INFO  : Result from executing command 'getPlatforms': 
+18:03:03 INFO  : Result from executing command 'removePlatformRepo': 
+18:03:36 INFO  : Result from executing command 'getProjects': delay-and-sum-v2-platform
+18:03:36 INFO  : Result from executing command 'getPlatforms': 
+18:03:37 INFO  : Checking for BSP changes to sync application flags for project 'delay-and-sum-v2-app'...
+18:03:43 INFO  : The hardware specification used by project 'delay-and-sum-v2-app' is out of sync with the platform. Resource files extracted from the hardware specification will be updated.
+18:03:43 INFO  : The file 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app\_ide\bitstream\Demodulator_128Ch_wrapper.bit' stored in project is removed.
+18:03:43 INFO  : The updated bitstream files are copied from platform to folder 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app\_ide\bitstream' in project 'delay-and-sum-v2-app'.
+18:03:43 INFO  : The file 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app\_ide\psinit\ps7_init.tcl' stored in project is removed.
+18:03:47 INFO  : The updated ps init files are copied from platform to folder 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app\_ide\psinit' in project 'delay-and-sum-v2-app'.
+18:03:47 INFO  : Disconnected from the channel tcfchan#29.
+18:07:26 INFO  : Checking for BSP changes to sync application flags for project 'delay-and-sum-v2-app'...
+18:08:13 INFO  : Checking for BSP changes to sync application flags for project 'delay-and-sum-v2-app'...
+18:08:30 INFO  : Connected to target on host '127.0.0.1' and port '3121'.
+18:08:30 INFO  : Jtag cable 'Digilent JTAG-HS1 210512180081' is selected.
+18:08:30 INFO  : 'jtag frequency' command is executed.
+18:08:30 INFO  : Context for 'APU' is selected.
+18:08:30 INFO  : System reset is completed.
+18:08:33 INFO  : 'after 3000' command is executed.
+18:08:33 INFO  : 'targets -set -filter {jtag_cable_name =~ "Digilent JTAG-HS1 210512180081" && level==0 && jtag_device_ctx=="jsn-JTAG-HS1-210512180081-13722093-0"}' command is executed.
+18:08:35 INFO  : Device configured successfully with "C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit"
+18:08:35 INFO  : Context for 'APU' is selected.
+18:08:35 INFO  : Hardware design and registers information is loaded from 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper22.xsa'.
+18:08:35 INFO  : 'configparams force-mem-access 1' command is executed.
+18:08:35 INFO  : Context for 'APU' is selected.
+18:08:35 INFO  : Sourcing of 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/psinit/ps7_init.tcl' is done.
+18:08:35 INFO  : 'ps7_init' command is executed.
+18:08:35 INFO  : 'ps7_post_config' command is executed.
+18:08:35 INFO  : Context for processor 'ps7_cortexa9_0' is selected.
+18:08:36 INFO  : The application 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/Debug/delay-and-sum-v2-app.elf' is downloaded to processor 'ps7_cortexa9_0'.
+18:08:36 INFO  : 'configparams force-mem-access 0' command is executed.
+18:08:36 INFO  : ----------------XSDB Script----------------
+connect -url tcp:127.0.0.1:3121
+targets -set -nocase -filter {name =~"APU*"}
+rst -system
+after 3000
+targets -set -filter {jtag_cable_name =~ "Digilent JTAG-HS1 210512180081" && level==0 && jtag_device_ctx=="jsn-JTAG-HS1-210512180081-13722093-0"}
+fpga -file C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit
+targets -set -nocase -filter {name =~"APU*"}
+loadhw -hw C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper22.xsa -mem-ranges [list {0x40000000 0xbfffffff}] -regs
+configparams force-mem-access 1
+targets -set -nocase -filter {name =~"APU*"}
+source C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/psinit/ps7_init.tcl
+ps7_init
+ps7_post_config
+targets -set -nocase -filter {name =~ "*A9*#0"}
+dow C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/Debug/delay-and-sum-v2-app.elf
+configparams force-mem-access 0
+----------------End of Script----------------
+
+18:08:36 INFO  : Context for processor 'ps7_cortexa9_0' is selected.
+18:08:36 INFO  : 'con' command is executed.
+18:08:36 INFO  : ----------------XSDB Script (After Launch)----------------
+targets -set -nocase -filter {name =~ "*A9*#0"}
+con
+----------------End of Script----------------
+
+18:08:36 INFO  : Launch script is exported to file 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app_system\_ide\scripts\systemdebugger_delay-and-sum-v2-app_system_standalone.tcl'
+18:26:38 INFO  : Checking for BSP changes to sync application flags for project 'delay-and-sum-v2-app'...
+18:27:11 INFO  : Checking for BSP changes to sync application flags for project 'delay-and-sum-v2-app'...
+18:27:22 INFO  : Disconnected from the channel tcfchan#38.
+18:27:22 INFO  : Connected to target on host '127.0.0.1' and port '3121'.
+18:27:22 INFO  : Jtag cable 'Digilent JTAG-HS1 210512180081' is selected.
+18:27:22 INFO  : 'jtag frequency' command is executed.
+18:27:22 INFO  : Context for 'APU' is selected.
+18:27:22 INFO  : System reset is completed.
+18:27:25 INFO  : 'after 3000' command is executed.
+18:27:25 INFO  : 'targets -set -filter {jtag_cable_name =~ "Digilent JTAG-HS1 210512180081" && level==0 && jtag_device_ctx=="jsn-JTAG-HS1-210512180081-13722093-0"}' command is executed.
+18:27:27 INFO  : Device configured successfully with "C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit"
+18:27:27 INFO  : Context for 'APU' is selected.
+18:27:27 INFO  : Hardware design and registers information is loaded from 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper22.xsa'.
+18:27:27 INFO  : 'configparams force-mem-access 1' command is executed.
+18:27:27 INFO  : Context for 'APU' is selected.
+18:27:27 INFO  : Sourcing of 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/psinit/ps7_init.tcl' is done.
+18:27:28 INFO  : 'ps7_init' command is executed.
+18:27:28 INFO  : 'ps7_post_config' command is executed.
+18:27:28 INFO  : Context for processor 'ps7_cortexa9_0' is selected.
+18:27:28 INFO  : The application 'C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/Debug/delay-and-sum-v2-app.elf' is downloaded to processor 'ps7_cortexa9_0'.
+18:27:28 INFO  : 'configparams force-mem-access 0' command is executed.
+18:27:28 INFO  : ----------------XSDB Script----------------
+connect -url tcp:127.0.0.1:3121
+targets -set -nocase -filter {name =~"APU*"}
+rst -system
+after 3000
+targets -set -filter {jtag_cable_name =~ "Digilent JTAG-HS1 210512180081" && level==0 && jtag_device_ctx=="jsn-JTAG-HS1-210512180081-13722093-0"}
+fpga -file C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/bitstream/Demodulator_128Ch_wrapper.bit
+targets -set -nocase -filter {name =~"APU*"}
+loadhw -hw C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/hw/Demodulator_128Ch_wrapper22.xsa -mem-ranges [list {0x40000000 0xbfffffff}] -regs
+configparams force-mem-access 1
+targets -set -nocase -filter {name =~"APU*"}
+source C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/_ide/psinit/ps7_init.tcl
+ps7_init
+ps7_post_config
+targets -set -nocase -filter {name =~ "*A9*#0"}
+dow C:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-app/Debug/delay-and-sum-v2-app.elf
+configparams force-mem-access 0
+----------------End of Script----------------
+
+18:27:28 INFO  : Context for processor 'ps7_cortexa9_0' is selected.
+18:27:28 INFO  : 'con' command is executed.
+18:27:28 INFO  : ----------------XSDB Script (After Launch)----------------
+targets -set -nocase -filter {name =~ "*A9*#0"}
+con
+----------------End of Script----------------
+
+18:27:28 INFO  : Launch script is exported to file 'C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-app_system\_ide\scripts\systemdebugger_delay-and-sum-v2-app_system_standalone.tcl'
