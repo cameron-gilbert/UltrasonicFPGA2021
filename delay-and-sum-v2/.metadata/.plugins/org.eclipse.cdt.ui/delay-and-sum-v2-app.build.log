@@ -1,34 +1,25 @@
-18:27:11 **** Incremental Build of configuration Debug for project delay-and-sum-v2-app ****
+13:15:20 **** Incremental Build of configuration Debug for project delay-and-sum-v2-app ****
 make all 
 make --no-print-directory pre-build
 a9-linaro-pre-build-step
 ' '
 make --no-print-directory main-build
-'Building file: ../src/udp_stream.c'
+'Building file: ../src/frame_ready.c'
 'Invoking: ARM v7 gcc compiler'
-arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/udp_stream.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bspinclude/include -MMD -MP -MF"src/udp_stream.d" -MT"src/udp_stream.o" -o "src/udp_stream.o" "../src/udp_stream.c"
-../src/udp_stream.c:52:24: warning: 'active_pcb' defined but not used [-Wunused-variable]
-   52 | static struct udp_pcb *active_pcb = NULL;
-      |                        ^~~~~~~~~~
-../src/udp_stream.c:51:17: warning: 'seq' defined but not used [-Wunused-variable]
-   51 | static uint32_t seq = 0;
-      |                 ^~~
-../src/udp_stream.c:50:16: warning: 'tx_buffer' defined but not used [-Wunused-variable]
-   50 | static uint8_t tx_buffer[1460]; // MTU-sized
-      |                ^~~~~~~~~
-'Finished building: ../src/udp_stream.c'
+arm-none-eabi-gcc -Wall -O0 -g3 -c -fmessage-length=0 -MT"src/frame_ready.o" -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -IC:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bspinclude/include -MMD -MP -MF"src/frame_ready.d" -MT"src/frame_ready.o" -o "src/frame_ready.o" "../src/frame_ready.c"
+'Finished building: ../src/frame_ready.c'
 ' '
 'Building target: delay-and-sum-v2-app.elf'
 'Invoking: ARM v7 gcc linker'
-arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/CamLT/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bsplib/lib -o "delay-and-sum-v2-app.elf"  ./src/DMA_Config.o ./src/DMA_Interrupt.o ./src/control_channel.o ./src/frame_ready.o ./src/i2c_access.o ./src/iic_phyreset.o ./src/main.o ./src/platform.o ./src/platform_mb.o ./src/platform_ppc.o ./src/platform_zynq.o ./src/platform_zynqmp.o ./src/sfp.o ./src/si5324.o ./src/udp_stream.o   -lm -Wl,--start-group,-lxil,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
+arm-none-eabi-gcc -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -Wl,-build-id=none -specs=Xilinx.spec -Wl,-T -Wl,../src/lscript.ld -LC:/Users/Cam/AX7010_Work/UltrasonicFPGA2021/delay-and-sum-v2/delay-and-sum-v2-platform/export/delay-and-sum-v2-platform/sw/delay-and-sum-v2-platform/standalone_domain/bsplib/lib -o "delay-and-sum-v2-app.elf"  ./src/DMA_Config.o ./src/DMA_Interrupt.o ./src/control_channel.o ./src/frame_ready.o ./src/i2c_access.o ./src/iic_phyreset.o ./src/main.o ./src/platform.o ./src/platform_mb.o ./src/platform_ppc.o ./src/platform_zynq.o ./src/platform_zynqmp.o ./src/sfp.o ./src/si5324.o ./src/udp_stream.o   -lm -Wl,--start-group,-lxil,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
 'Finished building target: delay-and-sum-v2-app.elf'
 ' '
 'Invoking: ARM v7 Print Size'
 arm-none-eabi-size delay-and-sum-v2-app.elf  |tee "delay-and-sum-v2-app.elf.size"
    text	   data	    bss	    dec	    hex	filename
- 127299	   3116	5298288	5428703	 52d5df	delay-and-sum-v2-app.elf
+ 128675	   3116	5298288	5430079	 52db3f	delay-and-sum-v2-app.elf
 'Finished building: delay-and-sum-v2-app.elf.size'
 ' '
 
-18:27:12 Build Finished (took 997ms)
+13:15:20 Build Finished (took 588ms)
 

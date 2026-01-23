@@ -31,9 +31,15 @@
 #endif
 // Math helpers
 #include <math.h>
+#include "frame_ready.h"      /* NUM_CHANNELS, frame_ready() */
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+// DDR buffer layout
+#define TOTAL_CHANNELS 128  // Physical channels in DDR (matches NUM_CHANNELS)
+
 //Creating packets
 #define MIC_COUNT 102
 #define SAMPLES_PER_MIC 512
@@ -307,27 +313,51 @@ static volatile uint32_t g_dma_frame_id = 0;
 #if USE_DDR_READS
 extern volatile uint16_t *dma_get_current_read_buffer(void);
 extern uint32_t dma_get_current_frame_id(void);
-extern void dma_frame_processed(void);
 #endif
 
 #if USE_DDR_READS
-// Get pre-deinterleaved samples for one mic
-// Data is deinterleaved in frame_ready.c when DMA interrupt fires
+// On-the-fly deinterleaving from DDR (matches UDP_Sources approach)
+// DDR format: interleaved by sample [S0_ch0..127, S1_ch0..127, ..., S511_ch0..127]
+static volatile int16_t *g_current_ddr_frame = NULL;
+
 static void read_mic_samples_from_ddr(uint16_t mic_id, int16_t *out_samples)
 {
-    const int16_t *samples = frame_get_mic_samples(mic_id);
-    
-    if (samples == NULL) {
-        xil_printf("[ERROR] Failed to get samples for mic %u!\r\n", mic_id);
+    if (g_current_ddr_frame == NULL) {
+        xil_printf("[ERROR] No DDR frame available for mic %u!\r\n", mic_id);
         generate_samples(mic_id, out_samples);  // Fallback to test pattern
         return;
     }
     
-    // Fast copy from pre-deinterleaved RAM buffer
-    memcpy(out_samples, samples, SAMPLES_PER_MIC * sizeof(int16_t));
+    // Deinterleave on-the-fly: extract this mic's samples from interleaved DDR buffer
+    // ddr_buf[sample * TOTAL_CHANNELS + mic] gives mic's sample at each time point
+    for (uint32_t s = 0; s < SAMPLES_PER_MIC; s++) {
+        out_samples[s] = g_current_ddr_frame[s * TOTAL_CHANNELS + mic_id];
+    }
 }
 #endif
 
+// Check if new frame is available from DMA (Bank0 or Bank1 ready)
+// Implementation for frame_ready.h declaration
+int frame_data_ready(void)
+{
+	extern volatile u8 Bank0_Available_Flag;
+	extern volatile u8 Bank1_Available_Flag;
+	
+	// If a frame is ready, set the DDR pointer for deinterleaving
+	if (Bank0_Available_Flag) {
+		extern u8 Bank0[];
+		g_current_ddr_frame = (volatile int16_t *)Bank0;
+		return 1;
+	}
+	else if (Bank1_Available_Flag) {
+		extern u8 Bank1[];
+		g_current_ddr_frame = (volatile int16_t *)Bank1;
+		return 1;
+	}
+	return 0;
+}
+
+// Old scheduler-based approach (now using on-the-fly deinterleaving)
 // Send as many packets as possible for the current frame
 // UDP has no flow control - sends immediately
 // Returns: 1 when frame is complete, 0 otherwise
@@ -398,6 +428,20 @@ static int send_frame_step(void){
 	
 	// Frame complete?
 	if (g_mic_idx >= MIC_COUNT) {
+		// Clear the Bank flag for the buffer we just finished
+		extern volatile u8 Bank0_Available_Flag;
+		extern volatile u8 Bank1_Available_Flag;
+		extern u8 Bank0[];
+		extern u8 Bank1[];
+		
+		if (g_current_ddr_frame == (volatile int16_t *)Bank0) {
+			Bank0_Available_Flag = 0;
+		} else if (g_current_ddr_frame == (volatile int16_t *)Bank1) {
+			Bank1_Available_Flag = 0;
+		}
+		
+		g_current_ddr_frame = NULL;  // Clear frame pointer
+		
 		if (g_frame_no == 0) {
 			xil_printf("[TX] *** FIRST FRAME COMPLETE *** (102 packets sent)\r\n");
 			xil_printf("[TX] Total bytes sent so far: %u\r\n", g_bytes_sent);
@@ -407,7 +451,6 @@ static int send_frame_step(void){
 		
 		g_mic_idx = 0;
 		g_frame_no++;
-		dma_frame_processed(); // Mark frame as processed
 		
 		if (packets_this_call > g_max_burst_this_period) g_max_burst_this_period = packets_this_call;
 		if (packets_this_call > 0) g_productive_calls++;

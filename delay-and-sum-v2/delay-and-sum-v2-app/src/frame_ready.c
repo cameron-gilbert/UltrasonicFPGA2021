@@ -166,10 +166,13 @@ const int16_t* frame_get_mic_samples(uint16_t mic_id)
 }
 
 /* Check if deinterleaved data is available */
+/* NOTE: This function is now implemented in udp_stream.c for on-the-fly deinterleaving
+ * Keeping this commented out to avoid duplicate definition
 int frame_data_ready(void)
 {
     return g_frame_deinterleaved;
 }
+*/
 
 /* Process frame when flag is set - called from main loop */
 void frame_process(void)

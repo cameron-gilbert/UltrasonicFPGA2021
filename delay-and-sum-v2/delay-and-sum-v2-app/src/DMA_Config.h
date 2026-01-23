@@ -60,6 +60,12 @@ void Set_DDS_Frequency(u32 Frequency_khz);
 u32  Get_DDS_Frequency_kHz(void);
 
 /* ------------------------------------------------------------ */
+/* Fractional delay control (for beamforming)                   */
+/* ------------------------------------------------------------ */
+void Set_Fractional_Delay(u32 mic_index, u32 delay_value);
+u32  Get_Fractional_Delay(u32 mic_index);
+
+/* ------------------------------------------------------------ */
 /* CFG_WORD configuration                                      */
 /* ------------------------------------------------------------ */
 int XDma_Config_Write32(const u32 *cfg_buf);

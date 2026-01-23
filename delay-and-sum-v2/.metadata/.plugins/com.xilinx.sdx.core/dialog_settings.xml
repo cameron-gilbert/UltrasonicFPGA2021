@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <section name="Workbench">
-	<item key="sdx.custom.platform.repository.locations" value="C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-platform\export\delay-and-sum-v2-platform"/>
+	<item key="sdx.custom.platform.repository.locations" value="C:\Users\CamLT\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-platform\export\delay-and-sum-v2-platform;C:\Users\Cam\AX7010_Work\UltrasonicFPGA2021\delay-and-sum-v2\delay-and-sum-v2-platform\export\delay-and-sum-v2-platform"/>
 </section>

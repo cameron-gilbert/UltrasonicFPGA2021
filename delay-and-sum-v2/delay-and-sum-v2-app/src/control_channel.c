@@ -22,6 +22,7 @@
 #include "lwip/err.h"
 #include "lwip/tcp.h"
 #include "xil_printf.h"
+#include "DMA_Config.h"  // For applying fractional delays
 
 #define CONTROL_PORT 6000
 #define CONTROL_PACKET_SIZE 12
@@ -30,9 +31,20 @@
 #define SIG_CONTROL_REQUEST  0x5555CCCC
 #define SIG_CONTROL_ACK      0xAAAA3333
 
+// Parameter IDs (matching UltrasonicHost protocol)
+#define PID_SAMPLING_ENABLE   0x00000001
+#define PID_TEST_ENABLE       0x00000002
+#define PID_SIM_ENABLE        0x00000003
+#define PID_SIM_FREQUENCY     0x00000004
+#define PID_CTRL_VEC_BASE     0x00000100  // Control vector 0x100-0x10F
+
 // Parameter storage (10 parameters: IDs 0-9)
 #define NUM_PARAMETERS 10
 static uint32_t g_parameters[NUM_PARAMETERS] = {0};
+
+// Fine delay array (16 entries for control vector 0x100-0x10F)
+// Each 32-bit word packs fractional delays for multiple mics
+static volatile uint32_t g_fine_delay[16] = {0};
 
 static struct tcp_pcb *control_listen_pcb = NULL;
 static struct tcp_pcb *control_client_pcb = NULL;
@@ -92,18 +104,81 @@ static err_t control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t
             xil_printf("[CONTROL] Received: Sig=0x%08X, ParamID=%u, Value=0x%08X\r\n",
                        signature, param_id, param_val);
 
-            // Update parameter (bounds check)
-            if (param_id < NUM_PARAMETERS) {
-                g_parameters[param_id] = param_val;
-                xil_printf("[CONTROL] Parameter[%u] updated to 0x%08X\r\n", param_id, param_val);
-                
-                // Send ACK with current value
-                send_ack(tpcb, param_id, g_parameters[param_id]);
-            } else {
-                xil_printf("[CONTROL] ERROR: Invalid ParamID %u (max %u)\r\n", 
-                           param_id, NUM_PARAMETERS - 1);
-                // Send ACK with error indicator (0xFFFFFFFF)
-                send_ack(tpcb, param_id, 0xFFFFFFFF);
+            uint32_t ack_value = param_val;  // Default ACK value
+            
+            // Handle system control parameters
+            switch (param_id) {
+                case PID_SAMPLING_ENABLE:
+                    if (param_val) {
+                        Enable_Sampling();
+                        xil_printf("[CONTROL] Sampling ENABLED\r\n");
+                    } else {
+                        Disable_Sampling();
+                        xil_printf("[CONTROL] Sampling DISABLED\r\n");
+                    }
+                    ack_value = param_val ? 1 : 0;
+                    send_ack(tpcb, param_id, ack_value);
+                    break;
+                    
+                case PID_TEST_ENABLE:
+                    if (param_val) {
+                        Enable_Test();
+                        xil_printf("[CONTROL] Test pattern ENABLED\r\n");
+                    } else {
+                        Disable_Test();
+                        xil_printf("[CONTROL] Test pattern DISABLED\r\n");
+                    }
+                    ack_value = param_val ? 1 : 0;
+                    send_ack(tpcb, param_id, ack_value);
+                    break;
+                    
+                case PID_SIM_ENABLE:
+                    if (param_val) {
+                        Enable_Simulate();
+                        xil_printf("[CONTROL] Simulation ENABLED\r\n");
+                    } else {
+                        Disable_Simulate();
+                        xil_printf("[CONTROL] Simulation DISABLED\r\n");
+                    }
+                    ack_value = param_val ? 1 : 0;
+                    send_ack(tpcb, param_id, ack_value);
+                    break;
+                    
+                case PID_SIM_FREQUENCY:
+                    if (param_val <= 50) {
+                        Set_DDS_Frequency(param_val);
+                        xil_printf("[CONTROL] Sim frequency set to %u kHz\r\n", param_val);
+                        ack_value = param_val;
+                    } else {
+                        xil_printf("[CONTROL] Invalid frequency %u (max 50 kHz)\r\n", param_val);
+                        ack_value = 0xFFFFFFFF;
+                    }
+                    send_ack(tpcb, param_id, ack_value);
+                    break;
+                    
+                default:
+                    // Handle general parameters (0-9)
+                    if (param_id < NUM_PARAMETERS) {
+                        g_parameters[param_id] = param_val;
+                        xil_printf("[CONTROL] Parameter[%u] updated to 0x%08X\r\n", param_id, param_val);
+                        send_ack(tpcb, param_id, g_parameters[param_id]);
+                    }
+                    // Handle control vector (0x100-0x10F) - bulk fractional delay write
+                    else if (param_id >= PID_CTRL_VEC_BASE && param_id < (PID_CTRL_VEC_BASE + 16)) {
+                        uint32_t index = param_id - PID_CTRL_VEC_BASE;
+                        g_fine_delay[index] = param_val;
+                        
+                        // Bulk write entire Fine_Delay array to hardware
+                        XDma_Config_Write32((uint32_t*)g_fine_delay);
+                        
+                        xil_printf("[CONTROL] Fine_Delay[%u] = 0x%08X (bulk write)\\r\\n", index, param_val);
+                        send_ack(tpcb, param_id, g_fine_delay[index]);
+                    }
+                    else {
+                        xil_printf("[CONTROL] ERROR: Invalid ParamID 0x%08X\r\n", param_id);
+                        send_ack(tpcb, param_id, 0xFFFFFFFF);
+                    }
+                    break;
             }
         } else {
             xil_printf("[CONTROL] WARNING: Invalid signature 0x%08X (expected 0x%08X)\r\n",

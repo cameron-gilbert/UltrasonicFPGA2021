@@ -168,12 +168,6 @@ volatile uint16_t *dma_get_current_read_buffer(void) {
 uint32_t dma_get_current_frame_id(void) {
     return Frame_ID;
 }
-
-void dma_frame_processed(void) {
-    // Clear the flag for the buffer we just processed
-    // This is called after we finish transmitting a frame
-    // The interrupt will set the flag again when next frame is ready
-}
 #endif
 
 /* GIC instance now in DMA_Interrupt.c (Intc) - shared across all interrupt handlers */
@@ -545,12 +539,10 @@ int main()
 	/* [Packet Poll] Check MAC for received packets, inject into lwIP. */
 	xemacif_input(echo_netif);
 
-	/* [Frame Processing] Check if DMA has new frame, deinterleave to RAM */
-	frame_process();
-	
-	/* [Stream Scheduler] Transmit packets from RAM buffer to PC
-	 * - Sends packets immediately via UDP (no flow control)
-	 * - Uses pre-deinterleaved data from frame_process()
+	/* [Stream Scheduler] Non-blocking frame transmission
+	 * - Checks Bank0/Bank1 flags from DMA interrupt
+	 * - Sends packets incrementally (doesn't block main loop)
+	 * - Deinterleaves on-the-fly from DDR ping-pong buffers
 	 * - See udp_stream.c for details */
 	stream_scheduler_run();
 
