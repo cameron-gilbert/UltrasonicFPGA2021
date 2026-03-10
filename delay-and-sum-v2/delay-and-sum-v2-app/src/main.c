@@ -1,89 +1,18 @@
-/*
- * Copyright (C) 2009 - 2019 Xilinx, Inc.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
- * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
- * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
- * OF SUCH DAMAGE.
- *
- */
-
-/* =====================================================================
- * lwIP TCP/IP Stack Integration - Educational Version
- * -----------------------------------------------------------------
- * Purpose:
- *   Initialize lwIP stack, configure network interface, run event loop.
- *   Bridges bare-metal application ↔ lwIP ↔ Ethernet MAC driver.
- *
- * Key Responsibilities:
- *   1. Platform init (caches, interrupts, timers).
- *   2. lwIP stack init (memory pools, protocol layers).
- *   3. Network interface registration (xemac_add → binds MAC driver).
- *   4. IP configuration (DHCP or static).
- *   5. Application start (echo server, etc.).
- *   6. Event loop: poll packets, service timers, app hooks.
- *
- * lwIP Architecture Layers (Bottom-Up):
- *   Hardware: PS GigE MAC (xemacps driver)
- *     ↓
- *   Netif Layer: xemacif adapter (Xilinx glue: xemacif_input, xemacif_output)
- *     ↓
- *   lwIP Core: IP, ICMP, TCP, UDP, DHCP, etc.
- *     ↓
- *   Application: Raw API callbacks (echo.c) or socket API (not used here)
- *
- * Event Loop Model (Polling):
- *   while(1) {
- *       Service lwIP timers (TCP retransmit, DHCP refresh);
- *       Poll for RX packets (xemacif_input);
- *       Application hook (transfer_data);
- *   }
- *   Timer ISR sets flags; main loop checks and calls timer functions.
- *
- * Why No OS:
- *   lwIP raw API = callback-driven, no threads.
- *   Standalone (bare-metal) with manual polling.
- *   For FreeRTOS: use lwIP socket API + sys_arch layer.
- *
- * Future DMA Integration:
- *   Replace transfer_data() hook with DMA buffer transmission logic.
- * ===================================================================== */
-
 #include <stdio.h>
-
-#include "xparameters.h"      /* Hardware definitions (base addresses, IDs) */
-
-#include "netif/xadapter.h"   /* Xilinx lwIP-to-MAC adapter layer */
-
-#include "platform.h"         /* Platform init/cleanup (cache, timers) */
-#include "platform_config.h"  /* EMAC base address */
+#include "xparameters.h"
+#include "netif/xadapter.h"
+#include "platform.h"
+#include "platform_config.h"
 #if defined (__arm__) || defined(__aarch64__)
 #include "xil_printf.h"
 #endif
 
-#include "lwip/udp.h"         /* UDP API */
-#include "xil_cache.h"        /* Cache management */
-#include "xscugic.h"          /* GIC for interrupt controller */
-#include "DMA_Config.h"       /* DMA configuration and buffer management */
-#include "frame_ready.h"      /* Frame ready flags from DMA interrupts */
+#include "lwip/udp.h"
+#include "xil_cache.h"
+#include "xscugic.h"
+#include "DMA_Config.h"
+#include "data_channel.h"
+#include "control_channel.h"
 
 // Simulation mode: 0 = use simulated data, 1 = read from DDR
 #define USE_DDR_READS 1  // Set to 1 when DMA hardware ready
@@ -96,22 +25,12 @@
 #endif
 #endif
 
-/* Application-defined functions (implemented in echo.c or similar). */
-void print_app_header();     /* Print application banner */
-int start_application();     /* Initialize TCP server / app logic */
-void start_data_channel();
-int transfer_data();         /* Hook for continuous TX (DMA buffer send) */
-void update_stats();         /* Print throughput statistics (call with slow timer) */
-void on_500ms_tick();
-void stream_scheduler_run();
-int should_run_scheduler();  /* Returns 1 if scheduler should process next packet */
-void stream_stats_run();
-void check_reconnection();   /* Attempt reconnection if disconnected */
-int is_data_connected();     /* Check if data channel is connected */
-
 /* lwIP timer functions (called periodically from main loop). */
 void tcp_fasttmr(void);      /* TCP fast timer: 250ms (retransmit, delayed ACK) */
 void tcp_slowtmr(void);      /* TCP slow timer: 500ms (persist, keepalive) */
+
+extern volatile int TcpFastTmrFlag;  /* Set every 250ms */
+extern volatile int TcpSlowTmrFlag;  /* Set every 500ms */
 
 /* lwIP init (defined in lwIP core; no prototype in public headers). */
 void lwip_init();
@@ -124,26 +43,9 @@ err_t dhcp_start(struct netif *netif);
 #endif
 #endif
 
-/* Timer flags: set by platform timer ISR, checked in main loop.
- * Volatile ensures compiler doesn't optimize away checks. */
-extern volatile int TcpFastTmrFlag;  /* Set every 250ms */
-extern volatile int TcpSlowTmrFlag;  /* Set every 500ms */
-
-/* Network interface structure.
- * Contains IP config, MAC address, driver callbacks, link state, etc. */
+// Network interface structure.
 static struct netif server_netif;
 struct netif *echo_netif;  /* Global pointer for app access */
-
-/* GIC instance now in DMA_Interrupt.c (Intc) - initialized by SetupInterruptSystem */
-/* Old declaration: XScuGic gic_inst; - removed, using Intc from DMA_Interrupt.c */
-
-/* ============================================================================
- * DMA Ping-Pong Buffer Management (Queensu DMA Integration)
- * ============================================================================
- * Hardware: Professor's DMA writes 128 channels × 512 samples to DDR
- * Format: Interleaved [S0_ch0..127, S1_ch0..127, ..., S511_ch0..127]
- * Buffers: Ping-pong (Bank0/Bank1) - DMA writes to one, software reads from other
- * ============================================================================ */
 #if USE_DDR_READS
 // External references to DMA_Config.c buffers and flags
 extern u8 Bank0[TOTAL_BLOCKS * BLOCK_SIZE * 8];
@@ -151,26 +53,11 @@ extern u8 Bank1[TOTAL_BLOCKS * BLOCK_SIZE * 8];
 extern volatile u8 Bank0_Available_Flag;
 extern volatile u8 Bank1_Available_Flag;
 extern u32 Frame_ID;
+extern volatile u32 Bank0_Frame_ID;
+extern volatile u32 Bank1_Frame_ID;
 extern XDma Dma;
 
-// Called by echo.c to get buffer for reading
-volatile uint16_t *dma_get_current_read_buffer(void) {
-    // Check which bank is available for reading
-    if (Bank0_Available_Flag) {
-        return (volatile uint16_t *)Bank0;
-    } else if (Bank1_Available_Flag) {
-        return (volatile uint16_t *)Bank1;
-    }
-    // Neither available - return NULL
-    return NULL;
-}
-
-uint32_t dma_get_current_frame_id(void) {
-    return Frame_ID;
-}
 #endif
-
-/* GIC instance now in DMA_Interrupt.c (Intc) - shared across all interrupt handlers */
 
 #if LWIP_IPV6==1
 void print_ip6(char *msg, ip_addr_t *ip)
@@ -220,9 +107,6 @@ int IicPhyReset(void);
 #endif
 
 /* =====================================================================
- * main() - Network Application Entry Point
- * -----------------------------------------------------------------
- * Execution Flow:
  *   [Phase 1] Platform Init: Enable caches, GIC, start platform timer.
  *   [Phase 2] lwIP Init: Memory pools, protocol layers, callback setup.
  *   [Phase 3] Network Interface: Register MAC, assign MAC address.
@@ -236,10 +120,6 @@ int main()
 	ip_addr_t ipaddr, netmask, gw;  /* IPv4 configuration structures */
 
 #endif
-	/* MAC Address Configuration:
-	 * Each board must have unique MAC to avoid ARP conflicts.
-	 * Format: 00:0a:35:00:01:02 (Xilinx OUI: 00:0a:35).
-	 * Change last 3 bytes if multiple boards on same network. */
 	unsigned char mac_ethernet_address[] =
 	{ 0x00, 0x0a, 0x35, 0x00, 0x01, 0x02 };
 
@@ -262,32 +142,14 @@ int main()
 	/* -----------------------------------------------------------------
 	 * [Phase 1] Platform Initialization
 	 * -----------------------------------------------------------------
-	 * What it does:
 	 *   - Enable instruction/data caches (performance).
 	 *   - Initialize GIC (interrupt controller).
 	 *   - Start platform timer (generates TcpFastTmrFlag/TcpSlowTmrFlag).
 	 *
-	 * Timer ISR Pattern:
-	 *   250ms: TcpFastTmrFlag = 1; (main loop calls tcp_fasttmr)
-	 *   500ms: TcpSlowTmrFlag = 1; (main loop calls tcp_slowtmr)
-	 *
-	 * Why timers matter:
-	 *   lwIP needs periodic servicing (retransmit, keepalive, DHCP refresh).
-	 *   Bare-metal: no OS scheduler, so app manually checks timer flags.
+	 *   - Initialize DMA system with GIC, interrupts, and ping-pong buffers
 	 * ----------------------------------------------------------------- */
 	init_platform();
-
-	//print_app_header();  // Legacy echo server banner - not needed for streaming app
 	xil_printf("\r\n[PHASE 1] Platform initialized (caches, GIC, timers)\r\n");
-
-	/* Initialize DMA system with GIC, interrupts, and ping-pong buffers
-	 * SetupSoundSystem() (from DMA_Config.c) handles:
-	 *   - DMA hardware initialization
-	 *   - GIC (interrupt controller) setup via SetupInterruptSystem()
-	 *   - DMA interrupt connection (frame-ready ISR)
-	 *   - Bank0/Bank1 buffer allocation and configuration
-	 *   - Sampling, test mode, and interrupt enable
-	 */
 #if USE_DDR_READS
 	int Status = SetupSoundSystem();
 	if (Status != XST_SUCCESS) {
@@ -299,20 +161,12 @@ int main()
 	xil_printf("[PHASE 1] DMA SKIPPED (simulation mode - using test patterns)\r\n");
 #endif
 
-	/* Packet timer removed - now sending entire frame immediately on DMA interrupt */
-	xil_printf("[PHASE 1] DMA interrupt-driven mode (no packet pacing timer)\r\n");
-
 	/* -----------------------------------------------------------------
 	 * [Phase 2] lwIP Stack Initialization
 	 * -----------------------------------------------------------------
-	 * lwip_init() initializes:
 	 *   - Memory pools (PBUF_POOL, MEMP_TCP_PCB, etc.).
 	 *   - Protocol layers (IP, ICMP, TCP, UDP).
 	 *   - Internal data structures (routing table, TCP timewait queue).
-	 *
-	 * After this call:
-	 *   - lwIP APIs become available (tcp_new, tcp_bind, etc.).
-	 *   - No network traffic yet (interface not registered).
 	 * ----------------------------------------------------------------- */
 	lwip_init();
 	xil_printf("[PHASE 2] lwIP stack initialized (memory pools, protocol layers)\r\n");
@@ -320,16 +174,11 @@ int main()
 	/* -----------------------------------------------------------------
 	 * [Phase 3] Network Interface Registration
 	 * -----------------------------------------------------------------
-	 * xemac_add() does:
-	 *   1. Allocates netif struct, links to lwIP.
-	 *   2. Installs xemacif_input (RX poll), xemacif_output (TX send).
-	 *   3. Initializes PS GigE MAC (xemacps driver).
-	 *   4. Configures PHY (autonegotiation, link speed).
-	 *   5. Sets MAC address in hardware.
-	 *
-	 * After this:
-	 *   - Interface exists but not yet "up" (can't send/recv).
-	 *   - Must call netif_set_up() to activate.
+	 *   - Allocates netif struct, links to lwIP.
+	 *   - Installs xemacif_input (RX poll), xemacif_output (TX send).
+	 *   - Initializes PS GigE MAC (xemacps driver).
+	 *   - Configures PHY (autonegotiation, link speed).
+	 *   - Sets MAC address in hardware.
 	 * ----------------------------------------------------------------- */
 #if (LWIP_IPV6 == 0)
 	/* IPv4 Mode: Assign IP configuration (static or DHCP placeholder). */
@@ -383,25 +232,10 @@ int main()
 	/* -----------------------------------------------------------------
 	 * [Phase 4] IP Configuration - DHCP Attempt
 	 * -----------------------------------------------------------------
-	 * DHCP Client Lifecycle:
-	 *   1. dhcp_start() → sends DHCP DISCOVER broadcast.
-	 *   2. Poll loop calls xemacif_input() to process DHCP responses.
-	 *   3. If DHCP succeeds: echo_netif->ip_addr assigned by server.
-	 *   4. If timeout (6 seconds): fallback to static IP.
-	 *
-	 * Timeout Mechanism:
-	 *   - dhcp_timoutcntr = 24 (24 * 250ms = 6 seconds).
-	 *   - Decremented in main loop by TcpFastTmrFlag checks.
-	 *   - If reaches 0 and still 0.0.0.0 → DHCP failed.
-	 *
-	 * Why DHCP might fail:
-	 *   - No DHCP server on network (direct cable to PC).
-	 *   - Network cable unplugged.
-	 *   - VLAN/firewall blocking DHCP broadcasts.
-	 *
-	 * Static Fallback:
-	 *   - Assigns 192.168.1.10 directly to netif struct.
-	 *   - Must match PC's network settings to communicate.
+	 *   - dhcp_start() sends DHCP DISCOVER broadcast.
+	 *   - Poll loop calls xemacif_input() to process DHCP responses.
+	 *   - If DHCP succeeds: echo_netif->ip_addr assigned by server.
+	 *   - If timeout (6 seconds): fallback to static IP.
 	 * ----------------------------------------------------------------- */
 #if (LWIP_DHCP==1)
 	xil_printf("\r\n[PHASE 4] Starting DHCP client...\r\n");
@@ -440,125 +274,44 @@ int main()
 #endif
 	/* -----------------------------------------------------------------
 	 * [Phase 5] Start Application
-	 * -----------------------------------------------------------------
-	 * start_application() (defined in echo.c):
-	 *   - Starts control channel server on port 6000 (parameter configuration).
-	 *
-	 * start_data_channel():
-	 *   - Initiates TCP client connection to PC on port 5000.
-	 *   - Begins automatic data streaming at boot.
-	 *
-	 * After this:
-	 *   - Control server ready for parameter updates.
-	 *   - Data streaming active to PC.
-	 *   - Main loop services lwIP timers and polls packets.
 	 * ----------------------------------------------------------------- */
 	xil_printf("\r\n[PHASE 5] Starting application...\r\n");
-	start_application();  // Starts port 6000 control channel only
-	start_data_channel(); // Start data streaming immediately
-
-	/* -----------------------------------------------------------------
-	 * [Phase 6] Main Event Loop
-	 * -----------------------------------------------------------------
-	 * This infinite loop is the heart of the bare-metal network stack.
-	 *
-	 * Responsibilities:
-	 *   1. Service lwIP Timers:
-	 *      - tcp_fasttmr() (250ms): Delayed ACKs, fast retransmit.
-	 *      - tcp_slowtmr() (500ms): Persist timer, keepalive, TIME_WAIT.
-	 *
-	 *   2. Poll for RX Packets:
-	 *      - xemacif_input(): Reads packets from MAC RX queue.
-	 *      - Injects packets into lwIP stack (IP to TCP/UDP to app callbacks).
-	 *
-	 *   3. Streaming Scheduler:
-	 *      - stream_scheduler_run(): Sends data packets to PC port 5000.
-	 *      - Respects TCP flow control (tcp_sndbuf checks).
-	 *
-	 * Timer Flag Pattern:
-	 *   - Platform timer ISR (every 250ms/500ms) sets volatile flags.
-	 *   - Main loop checks flags - calls timer functions - clears flags.
-	 *   - Why not call timers directly from ISR? Minimize ISR latency.
-	 *
-	 * Packet Flow (RX - Control Channel):
-	 *   Parameter packet arrives (port 6000) - xemacif_input polls
-	 *   lwIP processes and control_recv() callback fires
-	 *   Update g_parameters[] then Send ACK
-	 *
-	 * Packet Flow (TX - Data Channel):
-	 *   stream_scheduler_run() generates packets -> tcp_write queues
-	 *   Then tcp_output sends on xemacif_output and MAC DMA transmits
-	 *
-	 * Why No Blocking:
-	 *   - Bare-metal = no threads, can't afford to block.
-	 *   - Polling model ensures responsiveness to all events.
-	 *   - For RTOS: use lwIP socket API with blocking calls.
-	 * ----------------------------------------------------------------- */
+	start_control_channel();
+	start_data_channel();
 	xil_printf("\r\n[PHASE 6] Entering main event loop...\r\n");
 	xil_printf("Control channel ready on port 6000\r\n");
 	xil_printf("Data streaming to PC on port 5000\r\n\r\n");
 
 	while (1) {
-		/* [Timer Service] Check if fast timer interval elapsed (250ms). */
+		//250ms
 		if (TcpFastTmrFlag) {
-			tcp_fasttmr();      /* Handle delayed ACKs, retransmits */
-			TcpFastTmrFlag = 0; /* Clear flag for next interval */
+			tcp_fasttmr();
+			TcpFastTmrFlag = 0;
 		}
 
-		/* [Timer Service] Check if slow timer interval elapsed (500ms). */
+		//500ms
 		if (TcpSlowTmrFlag) {
-			tcp_slowtmr();      /* Handle persist, keepalive, cleanup */
-			//update_stats();     /* Update throughput statistics */
+			tcp_slowtmr();
 			on_500ms_tick();
-			stream_stats_run();
-			check_reconnection(); /* Only reconnects if START commanded and connection lost */
-			
-			// Periodic status debug (every 10 seconds = 20 * 500ms)
-			static int slow_tick_count = 0;
-			static uint32_t last_frame_id = 0;
-			slow_tick_count++;
-			if (slow_tick_count >= 20) {
-				slow_tick_count = 0;
-				
-				// Check DMA frame counter to see if it's capturing
-				uint32_t frame_id = XDma_Get_Frame_Number(&Dma);
-				uint32_t frame_id_valid = XDma_Get_Frame_Number_vld(&Dma);
-				
-			xil_printf("[STATUS] Main loop alive | Conn: %s | Frame ready: %s\r\n",
-			           is_data_connected() ? "YES" : "NO",
-			           frame_ready() ? "YES" : "NO");
-				xil_printf("[STATUS] DMA Frame ID: %u (valid=%u) | Delta: %u frames in 10s\r\n",
-				           frame_id, frame_id_valid, frame_id - last_frame_id);
-				
-				last_frame_id = frame_id;
-			}
-			
-			TcpSlowTmrFlag = 0; /* Clear flag for next interval */
+			check_reconnection();
+			TcpSlowTmrFlag = 0;
+
 		}
 
 	/* [Packet Poll] Check MAC for received packets, inject into lwIP. */
 	xemacif_input(echo_netif);
 
-	/* [Stream Scheduler] Non-blocking frame transmission
-	 * - Checks Bank0/Bank1 flags from DMA interrupt
-	 * - Sends packets incrementally (doesn't block main loop)
-	 * - Deinterleaves on-the-fly from DDR ping-pong buffers
-	 * - See udp_stream.c for details */
-	stream_scheduler_run();
-
-	extern uint32_t g_ms; // From udp_stream.c
-	static uint32_t last_heartbeat_ms = 0;
-	
-	/* [Heartbeat] Periodic system status (every 10 seconds) */
-	if ((g_ms - last_heartbeat_ms) >= 10000) {
-		xil_printf("[MAIN] System running - uptime %u s\r\n", g_ms / 1000);
-		last_heartbeat_ms = g_ms;
+	// Run data channel — check bank flags and send all mic packets
+	if (Bank0_Available_Flag) {
+	    Bank0_Available_Flag = 0;
+	    send_frame_packets((s16 *)Bank0, Bank0_Frame_ID);
 	}
 
-	/* [Application Hook] Periodic task for continuous data transmission.
-	 * Current: empty placeholder.
-	 * Future: Send DMA buffer data to active TCP connections. */
-	//transfer_data();
+	if (Bank1_Available_Flag) {
+	    Bank1_Available_Flag = 0;
+	    send_frame_packets((s16 *)Bank1, Bank1_Frame_ID);
+	}
+
 }
 
 /* never reached */

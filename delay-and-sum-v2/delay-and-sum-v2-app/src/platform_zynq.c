@@ -70,7 +70,7 @@
 void tcp_fasttmr(void);
 void tcp_slowtmr(void);
 
-static XScuTimer TimerInstance;
+XScuTimer TimerInstance;
 
 #ifndef USE_SOFTETH_ON_ZYNQ
 static int ResetRxCntr = 0;
@@ -231,6 +231,22 @@ void cleanup_platform()
 	Xil_DCacheDisable();
 	return;
 }
+
+/* Called after SetupInterruptSystem() to register the SCU timer interrupt
+ * with the GIC instance created by the DMA subsystem.  The device-API
+ * registration in platform_setup_interrupts() is overwritten when
+ * SetupInterruptSystem() replaces the IRQ exception handler with the
+ * instance-API dispatcher; this function re-registers the timer with
+ * the same XScuGic instance so timer_callback() is reachable again.
+ */
+void platform_register_timer_with_gic(XScuGic *gic)
+{
+	XScuGic_Connect(gic, TIMER_IRPT_INTR,
+			(Xil_InterruptHandler)timer_callback,
+			(void *)&TimerInstance);
+	XScuGic_Enable(gic, TIMER_IRPT_INTR);
+}
+
 #endif
 #endif
 

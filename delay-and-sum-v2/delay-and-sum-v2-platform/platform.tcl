@@ -44,3 +44,6 @@ platform generate
 platform clean
 platform generate
 platform generate
+platform active {delay-and-sum-v2-platform}
+platform generate -domains 
+platform generate -domains 

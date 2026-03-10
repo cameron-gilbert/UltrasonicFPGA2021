@@ -1,4 +1,5 @@
 #include "DMA_Config.h"
+#include "platform.h"
 
 /* -------------------------------------------------------------------------- */
 /* Interrupt IDs                                                              */
@@ -33,6 +34,8 @@ volatile u8 UartFlag     = 0;
 volatile u8 Bank0_Available_Flag  = 0;
 volatile u8 Bank1_Available_Flag  = 0;
 u32 Frame_ID;
+volatile u32 Bank0_Frame_ID = 0;
+volatile u32 Bank1_Frame_ID = 0;
 /* -------------------------------------------------------------------------- */
 /* ISRs                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -41,11 +44,13 @@ void DmaIsr(void *CallbackRef)
 	Frame_ID = XDma_Get_Frame_Number(&Dma);
 
 	if(Frame_ID & 0x1){	 	// if 1 ==> DMA is writing now in Bank1 and Bank0 is available
+		Bank0_Frame_ID = Frame_ID - 1;
 		Bank0_Available_Flag=1;
 		Xil_DCacheInvalidateRange((INTPTR)Bank0 , BLOCK_SIZE*TOTAL_BLOCKS*sizeof(u64));
 	}
 
 	else{					// if 0 ==> DMA is writing now in Bank0 and Bank1 is available
+		Bank1_Frame_ID = Frame_ID - 1;
 		Bank1_Available_Flag=1;
 		Xil_DCacheInvalidateRange((INTPTR)Bank1, BLOCK_SIZE*TOTAL_BLOCKS*sizeof(u64));
 	}
@@ -100,6 +105,15 @@ int SetupInterruptSystem(void)
 	);
 
 	XScuGic_Enable(&Intc, DMA_INTR_ID);
+
+	/* Re-register the SCU timer with this GIC instance.
+	 * platform_setup_interrupts() uses the device API, but this function
+	 * replaces the IRQ exception handler with the instance-API dispatcher
+	 * (XScuGic_InterruptHandler), which only dispatches handlers registered
+	 * against &Intc.  Without this call, the platform timer fires but
+	 * TcpSlowTmrFlag is never set and stream_stats_run() never executes.
+	 */
+	platform_register_timer_with_gic(&Intc);
 	/* ---------------- UART interrupt ---------------- */
 	//    XScuGic_SetPriorityTriggerType(
 	//        &Intc,

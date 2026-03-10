@@ -23,20 +23,7 @@
 #include "lwip/tcp.h"
 #include "xil_printf.h"
 #include "DMA_Config.h"  // For applying fractional delays
-
-#define CONTROL_PORT 6000
-#define CONTROL_PACKET_SIZE 12
-
-// Packet signatures
-#define SIG_CONTROL_REQUEST  0x5555CCCC
-#define SIG_CONTROL_ACK      0xAAAA3333
-
-// Parameter IDs (matching UltrasonicHost protocol)
-#define PID_SAMPLING_ENABLE   0x00000001
-#define PID_TEST_ENABLE       0x00000002
-#define PID_SIM_ENABLE        0x00000003
-#define PID_SIM_FREQUENCY     0x00000004
-#define PID_CTRL_VEC_BASE     0x00000100  // Control vector 0x100-0x10F
+#include "control_channel.h"
 
 // Parameter storage (10 parameters: IDs 0-9)
 #define NUM_PARAMETERS 10
@@ -62,6 +49,89 @@ static inline void put_u32_be(uint8_t *dst, uint32_t val) {
     dst[1] = (val >> 16) & 0xFF;
     dst[2] = (val >> 8) & 0xFF;
     dst[3] = val & 0xFF;
+}
+
+//DMA control functions
+void Enable_Sampling(void);
+void Disable_Sampling(void);
+void Enable_Test(void);
+void Disable_Test(void);
+void Enable_Simulate(void);
+void Disable_Simulate(void);
+
+//Forward declarations
+static err_t control_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
+static err_t control_recv(void *arg, struct tcp_pcb *tpcb,
+                          struct pbuf *p, err_t err);
+static void control_err(void *arg, err_t err);
+
+
+// Initialize control channel server on port 6000
+int start_control_channel(void)
+{
+    err_t err;
+
+    if (control_listen_pcb != NULL) {
+        xil_printf("[CONTROL] Already listening\r\n");
+        return 0;
+    }
+
+    control_listen_pcb = tcp_new();
+    if (!control_listen_pcb) {
+        xil_printf("[CONTROL] ERROR: Failed to create PCB\r\n");
+        return -1;
+    }
+
+    err = tcp_bind(control_listen_pcb, IP_ADDR_ANY, CONTROL_PORT);
+    if (err != ERR_OK) {
+        xil_printf("[CONTROL] ERROR: Bind failed on port %d, err=%d\r\n", CONTROL_PORT, err);
+        tcp_close(control_listen_pcb);
+        control_listen_pcb = NULL;
+        return -1;
+    }
+
+    control_listen_pcb = tcp_listen(control_listen_pcb);
+    if (!control_listen_pcb) {
+        xil_printf("[CONTROL] ERROR: Listen failed\r\n");
+        return -1;
+    }
+
+    tcp_accept(control_listen_pcb, control_accept);
+    xil_printf("[CONTROL] Listening on port %d for commands\r\n", CONTROL_PORT);
+
+    return 0;
+}
+
+// Accept incoming control connection
+static err_t control_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
+{
+    if (err != ERR_OK || newpcb == NULL) {
+        return ERR_VAL;
+    }
+
+    xil_printf("[CONTROL] Client connected from %d.%d.%d.%d:%u\r\n",
+               ip4_addr1(&newpcb->remote_ip),
+               ip4_addr2(&newpcb->remote_ip),
+               ip4_addr3(&newpcb->remote_ip),
+               ip4_addr4(&newpcb->remote_ip),
+               newpcb->remote_port);
+
+    // Only allow one control connection at a time
+    if (control_client_pcb != NULL) {
+        xil_printf("[CONTROL] WARNING: Closing existing connection\r\n");
+        tcp_close(control_client_pcb);
+        control_client_pcb = NULL;
+    }
+
+    control_client_pcb = newpcb;
+    control_connected = 1;
+
+    // Set up callbacks
+    tcp_arg(newpcb, NULL);
+    tcp_recv(newpcb, control_recv);
+    tcp_err(newpcb, control_err);
+
+    return ERR_OK;
 }
 
 // Send ACK packet to PC
@@ -92,22 +162,44 @@ static err_t control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t
         return ERR_OK;
     }
 
-    // Expecting exactly 12 bytes: [Signature:4][ParamID:4][ParamValue:4]
-    if (p->tot_len == CONTROL_PACKET_SIZE) {
-        uint8_t *data = (uint8_t *)p->payload;
+    // Expecting multiples of 12 bytes: [Signature:4][ParamID:4][ParamValue:4] per packet.
+    // TCP may coalesce several packets into one segment, so process in a loop.
+    if (p->tot_len % CONTROL_PACKET_SIZE != 0) {
+        xil_printf("[CONTROL] WARNING: Invalid packet size %u (not a multiple of %u)\r\n",
+                   p->tot_len, CONTROL_PACKET_SIZE);
+        tcp_recved(tpcb, p->tot_len);
+        pbuf_free(p);
+        return ERR_OK;
+    }
+
+    // Copy entire segment into a flat buffer so we can stride through it safely
+    // (pbuf chain may span multiple pbufs)
+    uint8_t flat[CONTROL_PACKET_SIZE * 32];  // max 32 coalesced packets
+    u16_t copy_len = p->tot_len < sizeof(flat) ? p->tot_len : sizeof(flat);
+    pbuf_copy_partial(p, flat, copy_len, 0);
+    tcp_recved(tpcb, p->tot_len);
+    pbuf_free(p);
+
+    u16_t offset = 0;
+    while (offset + CONTROL_PACKET_SIZE <= copy_len) {
+        uint8_t *data  = flat + offset;
         uint32_t signature = get_u32_be(data + 0);
         uint32_t param_id  = get_u32_be(data + 4);
         uint32_t param_val = get_u32_be(data + 8);
+        offset += CONTROL_PACKET_SIZE;
 
-        if (signature == SIG_CONTROL_REQUEST) {
-            // Valid control packet
-            xil_printf("[CONTROL] Received: Sig=0x%08X, ParamID=%u, Value=0x%08X\r\n",
-                       signature, param_id, param_val);
+        if (signature != SIG_CONTROL_REQUEST) {
+            xil_printf("[CONTROL] WARNING: Invalid signature 0x%08X (expected 0x%08X)\r\n",
+                       signature, SIG_CONTROL_REQUEST);
+            continue;
+        }
 
-            uint32_t ack_value = param_val;  // Default ACK value
-            
-            // Handle system control parameters
-            switch (param_id) {
+        xil_printf("[CONTROL] Received: Sig=0x%08X, ParamID=%u, Value=0x%08X\r\n",
+                   signature, param_id, param_val);
+
+        uint32_t ack_value = param_val;
+
+        switch (param_id) {
                 case PID_SAMPLING_ENABLE:
                     if (param_val) {
                         Enable_Sampling();
@@ -157,21 +249,15 @@ static err_t control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t
                     break;
                     
                 default:
-                    // Handle general parameters (0-9)
-                    if (param_id < NUM_PARAMETERS) {
-                        g_parameters[param_id] = param_val;
-                        xil_printf("[CONTROL] Parameter[%u] updated to 0x%08X\r\n", param_id, param_val);
-                        send_ack(tpcb, param_id, g_parameters[param_id]);
-                    }
                     // Handle control vector (0x100-0x10F) - bulk fractional delay write
-                    else if (param_id >= PID_CTRL_VEC_BASE && param_id < (PID_CTRL_VEC_BASE + 16)) {
+                    if (param_id >= PID_CTRL_VEC_BASE && param_id < (PID_CTRL_VEC_BASE + 16)) {
                         uint32_t index = param_id - PID_CTRL_VEC_BASE;
                         g_fine_delay[index] = param_val;
                         
                         // Bulk write entire Fine_Delay array to hardware
                         XDma_Config_Write32((uint32_t*)g_fine_delay);
                         
-                        xil_printf("[CONTROL] Fine_Delay[%u] = 0x%08X (bulk write)\\r\\n", index, param_val);
+                        xil_printf("[CONTROL] Fine_Delay[%u] = 0x%08X (bulk write)\r\n", index, param_val);
                         send_ack(tpcb, param_id, g_fine_delay[index]);
                     }
                     else {
@@ -180,19 +266,8 @@ static err_t control_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t
                     }
                     break;
             }
-        } else {
-            xil_printf("[CONTROL] WARNING: Invalid signature 0x%08X (expected 0x%08X)\r\n",
-                       signature, SIG_CONTROL_REQUEST);
-        }
+    }  // end while
 
-        tcp_recved(tpcb, p->tot_len);
-    }
-    else {
-        xil_printf("[CONTROL] WARNING: Invalid packet size %u (expected %u)\r\n", 
-                   p->tot_len, CONTROL_PACKET_SIZE);
-    }
-
-    pbuf_free(p);
     return ERR_OK;
 }
 
@@ -202,82 +277,6 @@ static void control_err(void *arg, err_t err)
     xil_printf("[CONTROL] ERROR: client disconnected, err=%d\r\n", err);
     control_client_pcb = NULL;
     control_connected = 0;
-}
-
-// Handle control channel disconnect
-static err_t control_poll(void *arg, struct tcp_pcb *tpcb)
-{
-    // Periodic check - can be used for keepalive
-    return ERR_OK;
-}
-
-// Accept incoming control connection
-static err_t control_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
-{
-    if (err != ERR_OK || newpcb == NULL) {
-        return ERR_VAL;
-    }
-
-    xil_printf("[CONTROL] Client connected from %d.%d.%d.%d:%u\r\n",
-               ip4_addr1(&newpcb->remote_ip),
-               ip4_addr2(&newpcb->remote_ip),
-               ip4_addr3(&newpcb->remote_ip),
-               ip4_addr4(&newpcb->remote_ip),
-               newpcb->remote_port);
-
-    // Only allow one control connection at a time
-    if (control_client_pcb != NULL) {
-        xil_printf("[CONTROL] WARNING: Closing existing connection\r\n");
-        tcp_close(control_client_pcb);
-        control_client_pcb = NULL;
-    }
-
-    control_client_pcb = newpcb;
-    control_connected = 1;
-
-    // Set up callbacks
-    tcp_arg(newpcb, NULL);
-    tcp_recv(newpcb, control_recv);
-    tcp_err(newpcb, control_err);
-    tcp_poll(newpcb, control_poll, 4);  // Poll every 2 seconds (4 * 500ms)
-
-    return ERR_OK;
-}
-
-// Initialize control channel server on port 6000
-int start_control_channel(void)
-{
-    err_t err;
-
-    if (control_listen_pcb != NULL) {
-        xil_printf("[CONTROL] Already listening\r\n");
-        return 0;
-    }
-
-    control_listen_pcb = tcp_new();
-    if (!control_listen_pcb) {
-        xil_printf("[CONTROL] ERROR: Failed to create PCB\r\n");
-        return -1;
-    }
-
-    err = tcp_bind(control_listen_pcb, IP_ADDR_ANY, CONTROL_PORT);
-    if (err != ERR_OK) {
-        xil_printf("[CONTROL] ERROR: Bind failed on port %d, err=%d\r\n", CONTROL_PORT, err);
-        tcp_close(control_listen_pcb);
-        control_listen_pcb = NULL;
-        return -1;
-    }
-
-    control_listen_pcb = tcp_listen(control_listen_pcb);
-    if (!control_listen_pcb) {
-        xil_printf("[CONTROL] ERROR: Listen failed\r\n");
-        return -1;
-    }
-
-    tcp_accept(control_listen_pcb, control_accept);
-    xil_printf("[CONTROL] Listening on port %d for commands\r\n", CONTROL_PORT);
-
-    return 0;
 }
 
 // Check if control channel is connected

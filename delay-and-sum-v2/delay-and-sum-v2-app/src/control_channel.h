@@ -9,8 +9,20 @@
 
 #include <stdint.h>
 
-// Number of configurable parameters (IDs 0–9)
-#define NUM_PARAMETERS 10
+// tcp port
+#define CONTROL_PORT 6000
+#define CONTROL_PACKET_SIZE 12
+
+// Packet signatures
+#define SIG_CONTROL_REQUEST  0x5555CCCC
+#define SIG_CONTROL_ACK      0xAAAA3333
+
+// Parameter IDs (matching UltrasonicHost protocol)
+#define PID_SAMPLING_ENABLE   0x00000001
+#define PID_TEST_ENABLE       0x00000002
+#define PID_SIM_ENABLE        0x00000003
+#define PID_SIM_FREQUENCY     0x00000004
+#define PID_CTRL_VEC_BASE     0x00000100  // Control vector 0x100-0x10F
 
 // Initialize control channel TCP server on port 6000
 // Returns 0 on success, -1 on error

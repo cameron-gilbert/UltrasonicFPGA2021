@@ -44,5 +44,9 @@ void timer_callback();
 #endif
 void platform_setup_timer();
 void platform_enable_interrupts();
+#ifdef __arm__
+#include "xscugic.h"
+void platform_register_timer_with_gic(XScuGic *gic);
+#endif
 #endif
 

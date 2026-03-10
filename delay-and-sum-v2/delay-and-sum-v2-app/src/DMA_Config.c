@@ -79,7 +79,7 @@ int SetupSoundSystem(void)
 //    if (XDma_Config_Write32(cfg_default) != XST_SUCCESS) {
 //        xil_printf("CFG32 programming failed\r\n");
 //    }
-    // Disable_Simulate();  // Already disabled above
+
 
     xil_printf("DMA configured, waiting for frames...\r\n");
     return XST_SUCCESS;
@@ -175,65 +175,7 @@ u32 Get_DDS_Frequency_kHz(void)
     return (phase_inc * DDS_CLK_KHZ) / 0x10000UL;
 }
 
-/* ============================================================ */
-/* Fractional delay control (for beamforming)                   */
-/* ============================================================ */
 
-/**
- * @brief Set fractional delay value for a specific microphone
- * 
- * @param mic_index  Microphone index (0-101)
- * @param delay_value  4-bit fractional delay (0-15)
- */
-void Set_Fractional_Delay(u32 mic_index, u32 delay_value)
-{
-    if (mic_index >= 102) {
-        xil_printf("ERROR: Invalid mic_index %u (max 101)\r\n", mic_index);
-        return;
-    }
-    
-    // Mask to 4 bits
-    delay_value &= 0x0F;
-    
-    // Write to CFG_WORD register for this microphone
-    // Assuming CFG_WORD[mic_index] holds the fractional delay
-    u32 cfg_buffer[16] = {0};
-    
-    // Pack delays: each word can hold delays for multiple mics
-    // Assuming 8 delays per word (4 bits each = 32 bits / 4 = 8 delays per word)
-    u32 word_index = mic_index / 8;
-    u32 nibble_index = mic_index % 8;
-    
-    if (word_index < 16) {
-        // Read current value, modify specific nibble, write back
-        // For simplicity, we'll write to the config word directly
-        // Note: This assumes the FPGA design has CFG_WORD registers mapped appropriately
-        
-        // Write the delay value (simplified - assumes direct register mapping)
-        // In reality, you may need to pack multiple delays into config words
-        xil_printf("[DMA] Set frac delay: Mic %u = %u\r\n", mic_index, delay_value);
-        
-        // TODO: Implement actual CFG_WORD write based on your FPGA register map
-        // This is a placeholder - adjust based on your hardware design
-    }
-}
-
-/**
- * @brief Get fractional delay value for a specific microphone
- * 
- * @param mic_index  Microphone index (0-101)
- * @return  4-bit fractional delay value (0-15)
- */
-u32 Get_Fractional_Delay(u32 mic_index)
-{
-    if (mic_index >= 102) {
-        return 0;
-    }
-    
-    // TODO: Read from CFG_WORD register
-    // This is a placeholder
-    return 0;
-}
 
 
 /* ============================================================ */
