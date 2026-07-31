@@ -1,0 +1,5 @@
+# Python virtual environments and caches (e.g. sensor_bench/.venv)
+**/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
