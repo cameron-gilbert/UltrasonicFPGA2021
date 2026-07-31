@@ -12,6 +12,7 @@
 #include "lwip/def.h"    /* htonl, htons */
 #include "control_channel.h"
 #include "data_channel.h"
+#include "imu_source.h"
 #if defined (__arm__) || defined (__aarch64__)
 #include "xil_printf.h"
 #include "xil_cache.h"
@@ -153,6 +154,10 @@ void send_frame_packets(s16 *ddr_buf, u32 hw_frame_id) {
         first_tx = 0;
     }
 
+#if IMU_USE_SYNTHETIC
+    imu_source_tick_synthetic();   /* stand-in until BNO085 I2C0 driver publishes samples */
+#endif
+
     for (uint16_t mic = 0; mic < MIC_COUNT; mic++) {
 #if USE_DDR_READS
         for (uint32_t s = 0; s < SAMPLES_PER_MIC; s++)
@@ -205,7 +210,7 @@ void build_mic_packet(mic_packet_t *pkt, uint32_t sw_frame_no, uint32_t hw_frame
     pkt->mic_id      = htons(mic_no);
     pkt->hw_frame_id = htonl(hw_frame_no);
     pkt->signature   = htonl(PACKET_SIGNATURE);
-    memset(pkt->reserved, 0, sizeof(pkt->reserved));
+    imu_stamp_reserved(pkt->reserved);                    // IMU metadata (big-endian) or zeros
     memcpy(pkt->samples, samples, sizeof(pkt->samples));  // samples copied as-is (no byte swap)
 }
 
